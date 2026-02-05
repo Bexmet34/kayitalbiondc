@@ -16,6 +16,16 @@ const musicList = [
 let audioPlayer = createAudioPlayer();
 let musicPlayer = createAudioPlayer();
 
+// DEBUG İÇİN DURUM TAKİBİ
+audioPlayer.on('stateChange', (oldState, newState) => {
+    console.log(`[TTS] ${oldState.status} -> ${newState.status}`);
+});
+musicPlayer.on('stateChange', (oldState, newState) => {
+    console.log(`[MUSIC] ${oldState.status} -> ${newState.status}`);
+});
+audioPlayer.on('error', error => console.error('[TTS ERROR]', error));
+musicPlayer.on('error', error => console.error('[MUSIC ERROR]', error));
+
 // Bellek sızıntısı uyarısını engellemek için limitleri kaldırıyoruz
 audioPlayer.setMaxListeners(0);
 musicPlayer.setMaxListeners(0);
@@ -25,6 +35,7 @@ let currentConnection = null;
 async function playMusic(channel) {
     return new Promise(async (resolve) => {
         try {
+            console.log(`[VOICE] Kanala giriliyor: ${channel.name}`);
             const connection = joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
@@ -34,11 +45,16 @@ async function playMusic(channel) {
             });
             currentConnection = connection;
 
+            connection.on('stateChange', (oldState, newState) => {
+                console.log(`[CONN] ${oldState.status} -> ${newState.status}`);
+            });
+
             // Bağlantının hazır olmasını bekle (Max 5 saniye)
             try {
                 await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
+                console.log('[VOICE] Bağlantı Hazır (Ready)!');
             } catch (e) {
-                console.error('Connection Ready timeout:', e);
+                console.error('[VOICE] Bağlantı Ready timeout!', e);
             }
 
             const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
@@ -50,10 +66,10 @@ async function playMusic(channel) {
             connection.subscribe(musicPlayer);
             musicPlayer.play(resource);
 
-            console.log(`Müzik başlatıldı: ${randomMusic}`);
+            console.log(`[VOICE] Müzik oynatılıyor: ${randomMusic}`);
             resolve(true);
         } catch (error) {
-            console.error('Music play error:', error);
+            console.error('[VOICE ERROR] playMusic:', error);
             resolve(false);
         }
     });
@@ -73,6 +89,7 @@ function stopMusic() {
 async function speak(channel, text, config) {
     // Müzik çalıyorsa duraklat
     musicPlayer.pause();
+    console.log(`[TTS] Mesaj okunuyor: ${text}`);
 
     return new Promise(async (resolve) => {
         try {
@@ -88,7 +105,9 @@ async function speak(channel, text, config) {
             // Bağlantı hazırlığını kontrol et
             try {
                 await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
-            } catch (e) { }
+            } catch (e) {
+                console.error('[TTS] Bağlantı Hazır Değil!', e);
+            }
 
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
             const resource = createAudioResource(ttsUrl, {
@@ -101,6 +120,7 @@ async function speak(channel, text, config) {
             audioPlayer.play(resource);
 
             audioPlayer.once(AudioPlayerStatus.Idle, () => {
+                console.log('[TTS] Konuşma bitti.');
                 setTimeout(() => {
                     // KONUŞMA BİTİNCE MÜZİK ÇALARA TEKRAR ABONE OL
                     if (currentConnection) {
@@ -112,13 +132,13 @@ async function speak(channel, text, config) {
             });
 
             audioPlayer.once('error', error => {
-                console.error('Audio Player Error:', error);
+                console.error('[TTS ERROR] Player:', error);
                 if (currentConnection) currentConnection.subscribe(musicPlayer);
                 musicPlayer.unpause();
                 resolve();
             });
         } catch (error) {
-            console.error('Speak error:', error);
+            console.error('[TTS ERROR] General:', error);
             if (currentConnection) currentConnection.subscribe(musicPlayer);
             musicPlayer.unpause();
             resolve();
