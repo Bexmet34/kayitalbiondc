@@ -13,6 +13,11 @@ const client = new Client({
     partials: [Partials.Channel]
 });
 
+// GLOBAL HATA YAKALAYICILAR (Botun Kapanmasını Önler)
+client.on('error', error => console.error('[CLIENT ERROR]', error));
+client.on('warn', warn => console.warn('[CLIENT WARN]', warn));
+process.on('unhandledRejection', error => console.error('[PROCESS ERROR] Unhandled Rejection:', error));
+
 client.commands = new Collection();
 
 // Slash Commands Definition
@@ -126,61 +131,78 @@ client.on('interactionCreate', async interaction => {
             // Cooldown'ı başlat
             setCooldown(member.id, interaction.guildId);
 
-            await interaction.reply({ content: '🔄 Bir yetkili bulmaya gidiyorum, lütfen ses kanalında bekle.', flags: [MessageFlags.Ephemeral] });
+            if (customId === 'notify_staff') {
+                try {
+                    const config = db.getGuildConfig(interaction.guildId);
+                    if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
 
-            startStaffSearch(member, member.voice.channel, config);
-        }
+                    const member = interaction.member;
 
-        if (customId === 'toggle_music') {
-            const config = db.getGuildConfig(interaction.guildId);
-            if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', flags: [MessageFlags.Ephemeral] });
+                    const cooldown = checkCooldown(member.id, interaction.guildId, 600000);
+                    if (cooldown.onCooldown) {
+                        const remainingMinutes = Math.ceil(cooldown.remaining / 60000);
+                        return interaction.reply({
+                            content: `⚠️ Zaten bir yetkili çağırdınız! Spam yapmamak için **${remainingMinutes}** dakika sonra tekrar deneyebilirsiniz.`,
+                            flags: [MessageFlags.Ephemeral]
+                        }).catch(() => { });
+                    }
 
-            // Müzik butonu için kısa bir cooldown (5 saniye)
-            const musicCooldown = checkCooldown(interaction.user.id, `music_${interaction.guildId}`, 5000);
-            if (musicCooldown.onCooldown) {
-                return interaction.reply({ content: '⚠️ Müzik butonunu çok hızlı kullanıyorsunuz, lütfen biraz bekleyin.', flags: [MessageFlags.Ephemeral] });
+                    if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
+                        return interaction.reply({ content: `❌ Bu butonu kullanmak için önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                    }
+
+                    if (!member.roles.cache.has(config.TARGET_ROLE_ID)) {
+                        return interaction.reply({ content: `❌ Zaten kayıtlısınız veya gereken role sahip değilsiniz.`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                    }
+
+                    setCooldown(member.id, interaction.guildId);
+                    await interaction.reply({ content: '🔄 Bir yetkili bulmaya gidiyorum, lütfen ses kanalında bekle.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                    startStaffSearch(member, member.voice.channel, config);
+                } catch (err) {
+                    console.error('Notify staff error:', err);
+                }
             }
-            setCooldown(interaction.user.id, `music_${interaction.guildId}`);
 
-            const member = interaction.member;
+            if (customId === 'toggle_music') {
+                try {
+                    const config = db.getGuildConfig(interaction.guildId);
+                    if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
 
-            if (!member.voice.channel) {
-                console.log(`[DEBUG] Müzik için ses kanalı yok.`);
-                return interaction.reply({ content: `❌ Müzik dinlemek için önce bir ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
-            }
+                    const musicCooldown = checkCooldown(interaction.user.id, `music_${interaction.guildId}`, 5000);
+                    if (musicCooldown.onCooldown) {
+                        return interaction.reply({ content: '⚠️ Çok hızlı basıyorsunuz, lütfen bekleyin.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                    }
+                    setCooldown(interaction.user.id, `music_${interaction.guildId}`);
 
-            console.log(`[DEBUG] Müzik Çalınıyor - Kanal: ${member.voice.channel.id}`);
+                    const member = interaction.member;
+                    if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
+                        return interaction.reply({ content: `❌ Önce <#${config.VOICE_CHANNEL_ID}> kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                    }
 
-            if (member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
-                return interaction.reply({ content: `❌ Müzik dinlemek için önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
-            }
+                    await interaction.deferUpdate().catch(() => { });
 
-            if (!isPlayingMusic) {
-                await playMusic(member.voice.channel);
-                isPlayingMusic = true;
+                    if (!isPlayingMusic) {
+                        await playMusic(member.voice.channel);
+                        isPlayingMusic = true;
 
-                // Mesajdaki butonu güncelle
-                const newRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
-                    new ButtonBuilder().setCustomId('toggle_music').setLabel('Müziği Durdur').setStyle(ButtonStyle.Danger).setEmoji('⏹️')
-                );
-                await interaction.update({ components: [newRow] });
-            } else {
-                stopMusic();
-                isPlayingMusic = false;
+                        const newRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
+                            new ButtonBuilder().setCustomId('toggle_music').setLabel('Müziği Durdur').setStyle(ButtonStyle.Danger).setEmoji('⏹️')
+                        );
+                        await interaction.editReply({ components: [newRow] }).catch(() => { });
+                    } else {
+                        stopMusic();
+                        isPlayingMusic = false;
 
-                const newRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
-                    new ButtonBuilder().setCustomId('toggle_music').setLabel('Müzik Çal').setStyle(ButtonStyle.Secondary).setEmoji('🎵')
-                );
-                await interaction.update({ components: [newRow] });
-            }
-        }
-
-        if (customId.startsWith('register_user_')) {
-            const config = db.getGuildConfig(interaction.guildId);
-            if (!config || !interaction.member.roles.cache.has(config.STAFF_ROLE_ID)) {
-                return interaction.reply({ content: '❌ Bu işlemi yapmak için yetkiniz yok!', flags: [MessageFlags.Ephemeral] });
+                        const newRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
+                            new ButtonBuilder().setCustomId('toggle_music').setLabel('Müzik Çal').setStyle(ButtonStyle.Secondary).setEmoji('🎵')
+                        );
+                        await interaction.editReply({ components: [newRow] }).catch(() => { });
+                    }
+                } catch (err) {
+                    console.error('Music button error:', err);
+                }
             }
 
             const targetId = customId.split('_')[2];

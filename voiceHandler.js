@@ -38,7 +38,8 @@ let currentConnection = null;
 async function playMusic(channel) {
     return new Promise(async (resolve) => {
         try {
-            console.log(`[VOICE] Müzik kanalı hazırlanıyor: ${channel.name}`);
+            console.log(`[VOICE] Kanala giriliyor: ${channel.name}`);
+
             const connection = joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
@@ -48,32 +49,30 @@ async function playMusic(channel) {
             });
             currentConnection = connection;
 
-            const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
-            console.log(`[VOICE] Müzik çekiliyor: ${randomMusic}`);
+            // BAĞLANTIYI BEKLE (VPS İÇİN KRİTİK)
+            try {
+                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
+                console.log('[VOICE] Bağlantı Hazır (Ready)!');
+            } catch (e) {
+                console.error('[VOICE] Bağlantı zamanaşımına uğradı!');
+                return resolve(false);
+            }
 
-            // VPS üzerinde en güvenli yöntem: Arbitrary StreamType
+            const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
             const resource = createAudioResource(randomMusic, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
-            resource.volume.setVolume(0.4);
+
+            if (resource.volume) resource.volume.setVolume(0.35);
 
             connection.subscribe(musicPlayer);
             musicPlayer.play(resource);
 
-            // Çalma durumunu kontrol et
-            setTimeout(() => {
-                if (musicPlayer.state.status === AudioPlayerStatus.Idle) {
-                    console.log('[VOICE] UYARI: Müzik anında durdu, tekrar deneniyor...');
-                    const retryResource = createAudioResource(randomMusic, { inputType: StreamType.Arbitrary, inlineVolume: true });
-                    retryResource.volume.setVolume(0.4);
-                    musicPlayer.play(retryResource);
-                }
-            }, 1000);
-
+            console.log(`[VOICE] Oynatılıyor: ${randomMusic}`);
             resolve(true);
         } catch (error) {
-            console.error('[VOICE FATAL ERROR] playMusic:', error);
+            console.error('[VOICE ERROR] playMusic:', error);
             resolve(false);
         }
     });
@@ -91,7 +90,7 @@ function stopMusic() {
  */
 async function speak(channel, text, config) {
     musicPlayer.pause();
-    console.log(`[TTS] Mesaj okunuyor: ${text}`);
+    console.log(`[TTS] Okunuyor: ${text}`);
 
     return new Promise(async (resolve) => {
         try {
@@ -104,20 +103,27 @@ async function speak(channel, text, config) {
             });
             currentConnection = connection;
 
-            // Google TTS URL'si - Gelişmiş URL
-            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
+            // BAĞLANTIYI BEKLE
+            try {
+                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
+            } catch (e) {
+                console.error('[TTS] Bağlantı Hatası');
+                return resolve();
+            }
 
+            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
             const resource = createAudioResource(ttsUrl, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
-            resource.volume.setVolume(config.VOLUME || voiceConfig.VOLUME || 1.0);
+
+            if (resource.volume) resource.volume.setVolume(config.VOLUME || voiceConfig.VOLUME || 1.0);
 
             connection.subscribe(audioPlayer);
             audioPlayer.play(resource);
 
             audioPlayer.once(AudioPlayerStatus.Idle, () => {
-                console.log('[TTS] Konuşma bitti.');
+                console.log('[TTS] Bitti.');
                 setTimeout(() => {
                     if (currentConnection) currentConnection.subscribe(musicPlayer);
                     musicPlayer.unpause();
