@@ -23,7 +23,7 @@ musicPlayer.setMaxListeners(0);
 let currentConnection = null;
 
 async function playMusic(channel) {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
         try {
             const connection = joinVoiceChannel({
                 channelId: channel.id,
@@ -34,10 +34,15 @@ async function playMusic(channel) {
             });
             currentConnection = connection;
 
+            // Bağlantının hazır olmasını bekle (Max 5 saniye)
+            try {
+                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
+            } catch (e) {
+                console.error('Connection Ready timeout:', e);
+            }
+
             const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
-            // Arbitrary StreamType kullanarak ffmpeg'in daha rahat işlemesini sağlıyoruz
             const resource = createAudioResource(randomMusic, {
-                inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
             resource.volume.setVolume(0.3);
@@ -69,7 +74,7 @@ async function speak(channel, text, config) {
     // Müzik çalıyorsa duraklat
     musicPlayer.pause();
 
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
         try {
             const connection = joinVoiceChannel({
                 channelId: channel.id,
@@ -79,6 +84,11 @@ async function speak(channel, text, config) {
                 selfMute: false
             });
             currentConnection = connection;
+
+            // Bağlantı hazırlığını kontrol et
+            try {
+                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
+            } catch (e) { }
 
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
             const resource = createAudioResource(ttsUrl, {
@@ -92,6 +102,10 @@ async function speak(channel, text, config) {
 
             audioPlayer.once(AudioPlayerStatus.Idle, () => {
                 setTimeout(() => {
+                    // KONUŞMA BİTİNCE MÜZİK ÇALARA TEKRAR ABONE OL
+                    if (currentConnection) {
+                        currentConnection.subscribe(musicPlayer);
+                    }
                     musicPlayer.unpause();
                     resolve();
                 }, 500);
@@ -99,11 +113,13 @@ async function speak(channel, text, config) {
 
             audioPlayer.once('error', error => {
                 console.error('Audio Player Error:', error);
+                if (currentConnection) currentConnection.subscribe(musicPlayer);
                 musicPlayer.unpause();
                 resolve();
             });
         } catch (error) {
             console.error('Speak error:', error);
+            if (currentConnection) currentConnection.subscribe(musicPlayer);
             musicPlayer.unpause();
             resolve();
         }

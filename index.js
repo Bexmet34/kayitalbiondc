@@ -119,9 +119,12 @@ client.on('interactionCreate', async interaction => {
             // Cooldown'ı başlat
             setCooldown(member.id, interaction.guildId);
 
-            await interaction.reply({ content: '🔄 Bir yetkili bulmaya gidiyorum, lütfen ses kanalında bekle.', flags: [MessageFlags.Ephemeral] });
+            await interaction.reply({
+                content: '✅ Zaten odaya girdiğinizde yetkililere haber verdim. Lütfen ses kanalında bekleyin, en kısa sürede gelecekler.',
+                flags: [MessageFlags.Ephemeral]
+            });
 
-            startStaffSearch(member, member.voice.channel, config);
+            // startStaffSearch(member, member.voice.channel, config); // Çift bildirimi önlemek için kaldırıldı
         }
 
         if (customId === 'toggle_music') {
