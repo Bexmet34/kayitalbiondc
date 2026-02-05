@@ -94,209 +94,115 @@ const { checkCooldown, setCooldown } = require('./cooldown');
 let isPlayingMusic = false;
 
 client.on('interactionCreate', async interaction => {
-    if (interaction.isButton()) {
-        const customId = interaction.customId;
-
-        if (customId === 'notify_staff') {
+    try {
+        // --- BUTTON INTERACTIONS ---
+        if (interaction.isButton()) {
+            const customId = interaction.customId;
             const config = db.getGuildConfig(interaction.guildId);
-            if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', ephemeral: true });
+            if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
 
-            const member = interaction.member;
-
-            // Spam Kontrolü (10 Dakika)
-            const cooldown = checkCooldown(member.id, interaction.guildId, 600000);
-            if (cooldown.onCooldown) {
-                const remainingMinutes = Math.ceil(cooldown.remaining / 60000);
-                return interaction.reply({
-                    content: `⚠️ Zaten bir yetkili çağırdınız! Spam yapmamak için **${remainingMinutes}** dakika sonra tekrar deneyebilirsiniz.`,
-                    flags: [MessageFlags.Ephemeral]
-                });
-            }
-
-            if (!member.voice.channel) {
-                console.log(`[DEBUG] ${member.displayName} ses kanalında değil.`);
-                return interaction.reply({ content: `❌ Bu butonu kullanmak için önce bir ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
-            }
-
-            console.log(`[DEBUG] Kullanıcı Kanalı: ${member.voice.channel.id} | Beklenen Kanal: ${config.VOICE_CHANNEL_ID}`);
-
-            if (member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
-                return interaction.reply({ content: `❌ Bu butonu kullanmak için önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
-            }
-
-            if (!member.roles.cache.has(config.TARGET_ROLE_ID)) {
-                return interaction.reply({ content: `❌ Zaten kayıtlısınız veya gereken role sahip değilsiniz.`, flags: [MessageFlags.Ephemeral] });
-            }
-
-            // Cooldown'ı başlat
-            setCooldown(member.id, interaction.guildId);
-
+            // 1. NOTIFY STAFF
             if (customId === 'notify_staff') {
-                try {
-                    const config = db.getGuildConfig(interaction.guildId);
-                    if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                const member = interaction.member;
 
-                    const member = interaction.member;
-
-                    const cooldown = checkCooldown(member.id, interaction.guildId, 600000);
-                    if (cooldown.onCooldown) {
-                        const remainingMinutes = Math.ceil(cooldown.remaining / 60000);
-                        return interaction.reply({
-                            content: `⚠️ Zaten bir yetkili çağırdınız! Spam yapmamak için **${remainingMinutes}** dakika sonra tekrar deneyebilirsiniz.`,
-                            flags: [MessageFlags.Ephemeral]
-                        }).catch(() => { });
-                    }
-
-                    if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
-                        return interaction.reply({ content: `❌ Bu butonu kullanmak için önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
-                    }
-
-                    if (!member.roles.cache.has(config.TARGET_ROLE_ID)) {
-                        return interaction.reply({ content: `❌ Zaten kayıtlısınız veya gereken role sahip değilsiniz.`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
-                    }
-
-                    setCooldown(member.id, interaction.guildId);
-                    await interaction.reply({ content: '🔄 Bir yetkili bulmaya gidiyorum, lütfen ses kanalında bekle.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
-                    startStaffSearch(member, member.voice.channel, config);
-                } catch (err) {
-                    console.error('Notify staff error:', err);
+                // Spam Kontrolü
+                const cooldown = checkCooldown(member.id, interaction.guildId, 600000);
+                if (cooldown.onCooldown) {
+                    const remainingMinutes = Math.ceil(cooldown.remaining / 60000);
+                    return interaction.reply({
+                        content: `⚠️ Zaten bir yetkili çağırdınız! **${remainingMinutes}** dakika sonra tekrar deneyebilirsiniz.`,
+                        flags: [MessageFlags.Ephemeral]
+                    }).catch(() => { });
                 }
+
+                if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
+                    return interaction.reply({ content: `❌ Önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelidir!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                }
+
+                if (!member.roles.cache.has(config.TARGET_ROLE_ID)) {
+                    return interaction.reply({ content: `❌ Zaten kayıtlısınız veya gereken role sahip değilsiniz.`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                }
+
+                setCooldown(member.id, interaction.guildId);
+                await interaction.reply({ content: '🔄 Bir yetkili bulmaya gidiyorum, lütfen bekle.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                startStaffSearch(member, member.voice.channel, config).catch(e => console.error('Staff search error:', e));
             }
 
-            if (customId === 'toggle_music') {
-                try {
-                    const config = db.getGuildConfig(interaction.guildId);
-                    if (!config) return interaction.reply({ content: 'Sistem kurulu değil.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
+            // 2. TOGGLE MUSIC
+            else if (customId === 'toggle_music') {
+                const member = interaction.member;
+                if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
+                    return interaction.reply({ content: `❌ Önce <#${config.VOICE_CHANNEL_ID}> kanalına giriniz!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
+                }
 
-                    const musicCooldown = checkCooldown(interaction.user.id, `music_${interaction.guildId}`, 5000);
-                    if (musicCooldown.onCooldown) {
-                        return interaction.reply({ content: '⚠️ Çok hızlı basıyorsunuz, lütfen bekleyin.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
-                    }
-                    setCooldown(interaction.user.id, `music_${interaction.guildId}`);
+                await interaction.deferUpdate().catch(() => { });
 
-                    const member = interaction.member;
-                    if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
-                        return interaction.reply({ content: `❌ Önce <#${config.VOICE_CHANNEL_ID}> kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
-                    }
-
-                    await interaction.deferUpdate().catch(() => { });
-
-                    if (!isPlayingMusic) {
-                        await playMusic(member.voice.channel);
+                if (!isPlayingMusic) {
+                    const result = await playMusic(member.voice.channel);
+                    if (result) {
                         isPlayingMusic = true;
-
                         const newRow = new ActionRowBuilder().addComponents(
                             new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
                             new ButtonBuilder().setCustomId('toggle_music').setLabel('Müziği Durdur').setStyle(ButtonStyle.Danger).setEmoji('⏹️')
                         );
                         await interaction.editReply({ components: [newRow] }).catch(() => { });
-                    } else {
-                        stopMusic();
-                        isPlayingMusic = false;
-
-                        const newRow = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
-                            new ButtonBuilder().setCustomId('toggle_music').setLabel('Müzik Çal').setStyle(ButtonStyle.Secondary).setEmoji('🎵')
-                        );
-                        await interaction.editReply({ components: [newRow] }).catch(() => { });
                     }
-                } catch (err) {
-                    console.error('Music button error:', err);
+                } else {
+                    stopMusic();
+                    isPlayingMusic = false;
+                    const newRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
+                        new ButtonBuilder().setCustomId('toggle_music').setLabel('Müzik Çal').setStyle(ButtonStyle.Secondary).setEmoji('🎵')
+                    );
+                    await interaction.editReply({ components: [newRow] }).catch(() => { });
                 }
             }
 
-            const targetId = customId.split('_')[2];
-
-            const modal = new ModalBuilder()
-                .setCustomId(`register_modal_${targetId}`)
-                .setTitle('Kullanıcı Kayıt');
-
-            const gameNameInput = new TextInputBuilder()
-                .setCustomId('game_name')
-                .setLabel('Oyundaki Nick')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Oyundaki Nickinizi giriniz')
-                .setRequired(true);
-
-            const realNameInput = new TextInputBuilder()
-                .setCustomId('real_name')
-                .setLabel('Gerçek İsim')
-                .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Gerçek isminizi giriniz')
-                .setRequired(true);
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(gameNameInput),
-                new ActionRowBuilder().addComponents(realNameInput)
-            );
-
-            await interaction.showModal(modal);
-        }
-        return;
-    }
-
-    if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('register_modal_')) {
-            const targetId = interaction.customId.split('_')[2];
-            const gameName = interaction.fields.getTextInputValue('game_name');
-            const realName = interaction.fields.getTextInputValue('real_name');
-
-            const config = db.getGuildConfig(interaction.guildId);
-            if (!config) return interaction.reply({ content: 'Sistem hatası: Konfigürasyon bulunamadı.', flags: [MessageFlags.Ephemeral] });
-
-            if (!interaction.member.roles.cache.has(config.STAFF_ROLE_ID)) {
-                return interaction.reply({ content: '❌ Bu işlemi yapmak için yetkiniz yok!', flags: [MessageFlags.Ephemeral] });
-            }
-
-            try {
-                const targetMember = await interaction.guild.members.fetch(targetId);
-                if (!targetMember) return interaction.reply({ content: 'Kullanıcı sunucuda bulunamadı.', flags: [MessageFlags.Ephemeral] });
-
-                // 1. Nickname Güncelle
-                await targetMember.setNickname(`${gameName} - ${realName}`).catch(err => {
-                    console.error('Nickname değiştirme hatası:', err);
-                });
-
-                // 2. Rolleri Değiştir
-                let roleAdded = false;
-                let roleRemoved = false;
-                let errorMessages = [];
-
-                if (config.REGISTERED_ROLE_ID) {
-                    try {
-                        await targetMember.roles.add(config.REGISTERED_ROLE_ID);
-                        roleAdded = true;
-                    } catch (err) {
-                        console.error('Kayıtlı rolü verme hatası:', err);
-                        errorMessages.push(`Kayıtlı rolü verilemedi. (${err.message})`);
-                    }
+            // 3. START REGISTRATION (Staff Side)
+            else if (customId.startsWith('register_user_')) {
+                if (!interaction.member.roles.cache.has(config.STAFF_ROLE_ID)) {
+                    return interaction.reply({ content: '❌ Bu işlemi yapmak için yetkiniz yok!', flags: [MessageFlags.Ephemeral] }).catch(() => { });
                 }
 
-                if (config.TARGET_ROLE_ID) {
-                    try {
-                        await targetMember.roles.remove(config.TARGET_ROLE_ID);
-                        roleRemoved = true;
-                    } catch (err) {
-                        console.error('Kayıtsız rolü alma hatası:', err);
-                        errorMessages.push(`Kayıtsız rolü geri alınamadı. (${err.message})`);
-                    }
-                }
+                const targetId = customId.split('_')[2];
+                const modal = new ModalBuilder()
+                    .setCustomId(`register_modal_${targetId}`)
+                    .setTitle('Kullanıcı Kayıt');
 
-                // Bilgilendirme Mesajı
-                let statusMsg = `✅ ${targetMember} başarıyla kaydedildi: **${gameName} - ${realName}**`;
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('game_name').setLabel('Oyundaki Nick').setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('real_name').setLabel('Gerçek İsim').setStyle(TextInputStyle.Short).setRequired(true))
+                );
 
-                if (errorMessages.length > 0) {
-                    statusMsg += `\n\n⚠️ **Bazı işlemler tamamlanamadı:**\n${errorMessages.join('\n')}`;
-                    statusMsg += `\n\n💡 **Çözüm:** Botun rolünün, vermeye çalıştığı rollerden daha **üstte** olduğundan emin olun.`;
-                }
-
-                await interaction.reply({ content: statusMsg });
-            } catch (error) {
-                console.error('Kayıt hatası:', error);
-                await interaction.reply({ content: `❌ Kayıt sırasında teknik bir hata oluştu: ${error.message}`, flags: [MessageFlags.Ephemeral] });
+                await interaction.showModal(modal).catch(() => { });
             }
         }
-        return;
+
+        // --- MODAL SUBMISSIONS ---
+        else if (interaction.isModalSubmit()) {
+            if (interaction.customId.startsWith('register_modal_')) {
+                await interaction.deferReply().catch(() => { });
+
+                const targetId = interaction.customId.split('_')[2];
+                const gameName = interaction.fields.getTextInputValue('game_name');
+                const realName = interaction.fields.getTextInputValue('real_name');
+                const config = db.getGuildConfig(interaction.guildId);
+
+                try {
+                    const targetMember = await interaction.guild.members.fetch(targetId);
+                    await targetMember.setNickname(`${gameName} - ${realName}`).catch(() => { });
+
+                    if (config.REGISTERED_ROLE_ID) await targetMember.roles.add(config.REGISTERED_ROLE_ID).catch(() => { });
+                    if (config.TARGET_ROLE_ID) await targetMember.roles.remove(config.TARGET_ROLE_ID).catch(() => { });
+
+                    await interaction.editReply({ content: `✅ ${targetMember} başarıyla kaydedildi: **${gameName} - ${realName}**` }).catch(() => { });
+                } catch (error) {
+                    await interaction.editReply({ content: `❌ Kayıt sırasında hata oluştu.` }).catch(() => { });
+                }
+            }
+        }
+    } catch (globalErr) {
+        console.error('[INTERACTION ERROR]', globalErr);
     }
 
 

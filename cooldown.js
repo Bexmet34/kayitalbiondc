@@ -17,7 +17,7 @@ module.exports = {
             if (timeDiff < cooldownMs) {
                 return {
                     onCooldown: true,
-                    remaining: cooldownMs - timeDiff
+                    remaining: Math.max(0, cooldownMs - timeDiff)
                 };
             }
         }
