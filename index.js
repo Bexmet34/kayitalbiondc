@@ -223,23 +223,34 @@ client.on('interactionCreate', async interaction => {
                 // 2. Rolleri Değiştir
                 let roleAdded = false;
                 let roleRemoved = false;
+                let errorMessages = [];
 
                 if (config.REGISTERED_ROLE_ID) {
-                    await targetMember.roles.add(config.REGISTERED_ROLE_ID)
-                        .then(() => roleAdded = true)
-                        .catch(err => console.error('Kayıtlı rolü verme hatası:', err));
+                    try {
+                        await targetMember.roles.add(config.REGISTERED_ROLE_ID);
+                        roleAdded = true;
+                    } catch (err) {
+                        console.error('Kayıtlı rolü verme hatası:', err);
+                        errorMessages.push(`Kayıtlı rolü verilemedi. (${err.message})`);
+                    }
                 }
 
                 if (config.TARGET_ROLE_ID) {
-                    await targetMember.roles.remove(config.TARGET_ROLE_ID)
-                        .then(() => roleRemoved = true)
-                        .catch(err => console.error('Kayıtsız rolü alma hatası:', err));
+                    try {
+                        await targetMember.roles.remove(config.TARGET_ROLE_ID);
+                        roleRemoved = true;
+                    } catch (err) {
+                        console.error('Kayıtsız rolü alma hatası:', err);
+                        errorMessages.push(`Kayıtsız rolü geri alınamadı. (${err.message})`);
+                    }
                 }
 
                 // Bilgilendirme Mesajı
                 let statusMsg = `✅ ${targetMember} başarıyla kaydedildi: **${gameName} - ${realName}**`;
-                if (!roleAdded || !roleRemoved) {
-                    statusMsg += `\n⚠️ **Not:** Bazı roller verilemedi veya alınamadı. Botun yetkisinin bu rollerin üstünde olduğundan emin olun.`;
+
+                if (errorMessages.length > 0) {
+                    statusMsg += `\n\n⚠️ **Bazı işlemler tamamlanamadı:**\n${errorMessages.join('\n')}`;
+                    statusMsg += `\n\n💡 **Çözüm:** Botun rolünün, vermeye çalıştığı rollerden daha **üstte** olduğundan emin olun.`;
                 }
 
                 await interaction.reply({ content: statusMsg });

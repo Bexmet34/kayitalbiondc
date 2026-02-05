@@ -1,4 +1,4 @@
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 const voiceConfig = require('./voiceConfig');
 const db = require('./db');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -22,9 +22,6 @@ musicPlayer.setMaxListeners(0);
 
 let currentConnection = null;
 
-/**
- * MÜZİK ÇALMA FONKSİYONU
- */
 async function playMusic(channel) {
     return new Promise((resolve) => {
         try {
@@ -32,16 +29,23 @@ async function playMusic(channel) {
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false
             });
             currentConnection = connection;
 
             const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
-            const resource = createAudioResource(randomMusic, { inlineVolume: true });
-            resource.volume.setVolume(0.3); // Müzik sesi biraz daha kısık olsun
+            // Arbitrary StreamType kullanarak ffmpeg'in daha rahat işlemesini sağlıyoruz
+            const resource = createAudioResource(randomMusic, {
+                inputType: StreamType.Arbitrary,
+                inlineVolume: true
+            });
+            resource.volume.setVolume(0.3);
 
             connection.subscribe(musicPlayer);
             musicPlayer.play(resource);
 
+            console.log(`Müzik başlatıldı: ${randomMusic}`);
             resolve(true);
         } catch (error) {
             console.error('Music play error:', error);
@@ -62,7 +66,7 @@ function stopMusic() {
  * SESLİ OKUMA FONKSİYONU
  */
 async function speak(channel, text, config) {
-    // Müzik çalıyorsa sesini kıs veya durdur
+    // Müzik çalıyorsa duraklat
     musicPlayer.pause();
 
     return new Promise((resolve) => {
@@ -71,19 +75,26 @@ async function speak(channel, text, config) {
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false
             });
             currentConnection = connection;
 
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
-            const resource = createAudioResource(ttsUrl, { inlineVolume: true });
-            resource.volume.setVolume(config.VOLUME || voiceConfig.VOLUME);
+            const resource = createAudioResource(ttsUrl, {
+                inputType: StreamType.Arbitrary,
+                inlineVolume: true
+            });
+            resource.volume.setVolume(config.VOLUME || voiceConfig.VOLUME || 1.0);
 
             connection.subscribe(audioPlayer);
             audioPlayer.play(resource);
 
             audioPlayer.once(AudioPlayerStatus.Idle, () => {
-                musicPlayer.unpause(); // TTS bitince müziğe devam et
-                resolve();
+                setTimeout(() => {
+                    musicPlayer.unpause();
+                    resolve();
+                }, 500);
             });
 
             audioPlayer.once('error', error => {
@@ -117,8 +128,12 @@ async function processQueue() {
     const { member, channel, config } = userQueue.shift();
 
     try {
-        // 1. Yetkili Bul
         const guild = channel.guild;
+
+        // Önce her zaman yazılı bildirim gönderiyoruz (Kullanıcı mesaj gelmiyor dediği için)
+        await sendStaffAlert(guild, member, config);
+
+        // Sonra sesli bildirim için yetkilileri ara
         const staffChannels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 'GUILD_VOICE') && c.id !== channel.id);
         let activeStaffFound = false;
 
@@ -130,13 +145,11 @@ async function processQueue() {
             }
         }
 
-        // 2. Bilgilendir
+        // Kullanıcıya bilgi ver
         if (activeStaffFound) {
             await speak(channel, `Yetkililere sesli mesaj iletildi, birazdan burada olacaklar.`, config);
         } else {
-            // Yazılı Bildirim Gönder
-            await sendStaffAlert(guild, member, config);
-            await speak(channel, `Şu an aktif yetkili bulamadım ama tüm ekibe mesaj gönderdim. En kısa sürede gelecekler.`, config);
+            await speak(channel, `Şu an aktif sesli yetkili bulamadım ama tüm ekibe yazılı mesaj gönderdim. En kısa sürede gelecekler.`, config);
         }
     } catch (err) {
         console.error("Sesli işlem hatası:", err);
@@ -195,10 +208,13 @@ async function handleVoiceStateUpdate(oldState, newState) {
         const member = newState.member;
         if (!member || member.user.bot) return;
 
-        // Rol Kontrolü
+        // Rol Kontrolü (Sadece kayıtsızlar için)
         if (member.roles.cache.has(config.TARGET_ROLE_ID)) {
-            // Hoş geldin ve butona yönlendir
-            await speak(newState.channel, `Merhaba ${member.displayName}, hoş geldin. Kayıt olmak için lütfen metin kanalındaki butona tıklayarak yetkili çağır.`, config);
+            // 1. Hoş geldin sesli mesajı
+            await speak(newState.channel, `Merhaba ${member.displayName}, hoş geldin. Kayıt işlemi için yetkilileri bilgilendiriyorum, lütfen bekle.`, config);
+
+            // 2. Otomatik Yetkili Araması Başlat (Artık butona basmasına gerek kalmadan)
+            startStaffSearch(member, newState.channel, config);
         }
     }
 }
