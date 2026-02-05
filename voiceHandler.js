@@ -226,11 +226,8 @@ async function handleVoiceStateUpdate(oldState, newState) {
 
         // Rol Kontrolü (Sadece kayıtsızlar için)
         if (member.roles.cache.has(config.TARGET_ROLE_ID)) {
-            // 1. Hoş geldin sesli mesajı
-            await speak(newState.channel, `Merhaba ${member.displayName}, hoş geldin. Kayıt işlemi için yetkilileri bilgilendiriyorum, lütfen bekle.`, config);
-
-            // 2. Otomatik Yetkili Araması Başlat (Artık butona basmasına gerek kalmadan)
-            startStaffSearch(member, newState.channel, config);
+            // Sadece Hoş geldin sesli mesajı (Yetkili bildirimi kaldırıldı)
+            await speak(newState.channel, `Merhaba ${member.displayName}, hoş geldin. Kayıt olmak için lütfen metin kanalındaki butona tıklayarak yetkili çağır.`, config);
         }
     }
 }
