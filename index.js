@@ -108,7 +108,14 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
+            if (!member.voice.channel) {
+                console.log(`[DEBUG] ${member.displayName} ses kanalında değil.`);
+                return interaction.reply({ content: `❌ Bu butonu kullanmak için önce bir ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
+            }
+
+            console.log(`[DEBUG] Kullanıcı Kanalı: ${member.voice.channel.id} | Beklenen Kanal: ${config.VOICE_CHANNEL_ID}`);
+
+            if (member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
                 return interaction.reply({ content: `❌ Bu butonu kullanmak için önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
             }
 
@@ -136,7 +143,15 @@ client.on('interactionCreate', async interaction => {
             setCooldown(interaction.user.id, `music_${interaction.guildId}`);
 
             const member = interaction.member;
-            if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
+
+            if (!member.voice.channel) {
+                console.log(`[DEBUG] Müzik için ses kanalı yok.`);
+                return interaction.reply({ content: `❌ Müzik dinlemek için önce bir ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
+            }
+
+            console.log(`[DEBUG] Müzik Çalınıyor - Kanal: ${member.voice.channel.id}`);
+
+            if (member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
                 return interaction.reply({ content: `❌ Müzik dinlemek için önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelisiniz!`, flags: [MessageFlags.Ephemeral] });
             }
 

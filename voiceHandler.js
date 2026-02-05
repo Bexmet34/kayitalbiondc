@@ -35,26 +35,33 @@ let currentConnection = null;
 async function playMusic(channel) {
     return new Promise(async (resolve) => {
         try {
-            console.log(`[VOICE] Kanala giriliyor: ${channel.name}`);
+            console.log(`[VOICE] Kanala giriliyor: ${channel.name} (${channel.id})`);
             const connection = joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
                 selfDeaf: false,
-                selfMute: false
+                selfMute: false,
+                debug: true // Discord.js'in iç debug loglarını açar
             });
             currentConnection = connection;
 
             connection.on('stateChange', (oldState, newState) => {
-                console.log(`[CONN] ${oldState.status} -> ${newState.status}`);
+                console.log(`[CONN STATUS] ${oldState.status} -> ${newState.status}`);
+                if (newState.status === 'disconnected') {
+                    console.log('[CONN ALERT] Bot kanaldan düştü veya atıldı.');
+                }
             });
+
+            connection.on('error', error => console.error('[CONN ERROR]', error));
 
             // Bağlantının hazır olmasını bekle (Max 5 saniye)
             try {
+                console.log('[VOICE] Ready durumu bekleniyor...');
                 await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
-                console.log('[VOICE] Bağlantı Hazır (Ready)!');
+                console.log('[VOICE] OK: Bağlantı Tamamen Hazır!');
             } catch (e) {
-                console.error('[VOICE] Bağlantı Ready timeout!', e);
+                console.error('[VOICE] HATA: 5 saniye içinde Ready olamadı! (Portlar kapalı olabilir)', e);
             }
 
             const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
@@ -66,10 +73,10 @@ async function playMusic(channel) {
             connection.subscribe(musicPlayer);
             musicPlayer.play(resource);
 
-            console.log(`[VOICE] Müzik oynatılıyor: ${randomMusic}`);
+            console.log(`[VOICE] Müzik Çalar Tetiklendi: ${randomMusic}`);
             resolve(true);
         } catch (error) {
-            console.error('[VOICE ERROR] playMusic:', error);
+            console.error('[VOICE FATAL ERROR]', error);
             resolve(false);
         }
     });
