@@ -32,40 +32,28 @@ musicPlayer.setMaxListeners(0);
 
 let currentConnection = null;
 
+/**
+ * MÜZİK ÇALMA FONKSİYONU
+ */
 async function playMusic(channel) {
     return new Promise(async (resolve) => {
         try {
-            console.log(`[VOICE] Kanala giriliyor: ${channel.name} (${channel.id})`);
+            console.log(`[VOICE] Müzik kanalı hazırlanıyor: ${channel.name}`);
             const connection = joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
                 selfDeaf: false,
-                selfMute: false,
-                debug: true // Discord.js'in iç debug loglarını açar
+                selfMute: false
             });
             currentConnection = connection;
 
-            connection.on('stateChange', (oldState, newState) => {
-                console.log(`[CONN STATUS] ${oldState.status} -> ${newState.status}`);
-                if (newState.status === 'disconnected') {
-                    console.log('[CONN ALERT] Bot kanaldan düştü veya atıldı.');
-                }
-            });
-
-            connection.on('error', error => console.error('[CONN ERROR]', error));
-
-            // Bağlantının hazır olmasını bekle (Max 5 saniye)
-            try {
-                console.log('[VOICE] Ready durumu bekleniyor...');
-                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
-                console.log('[VOICE] OK: Bağlantı Tamamen Hazır!');
-            } catch (e) {
-                console.error('[VOICE] HATA: 5 saniye içinde Ready olamadı! (Portlar kapalı olabilir)', e);
-            }
-
             const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
+            console.log(`[VOICE] Müzik çekiliyor: ${randomMusic}`);
+
+            // URL'yi stream olarak işle
             const resource = createAudioResource(randomMusic, {
+                inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
             resource.volume.setVolume(0.3);
@@ -73,10 +61,9 @@ async function playMusic(channel) {
             connection.subscribe(musicPlayer);
             musicPlayer.play(resource);
 
-            console.log(`[VOICE] Müzik Çalar Tetiklendi: ${randomMusic}`);
             resolve(true);
         } catch (error) {
-            console.error('[VOICE FATAL ERROR]', error);
+            console.error('[VOICE FATAL ERROR] playMusic:', error);
             resolve(false);
         }
     });
@@ -87,14 +74,12 @@ async function playMusic(channel) {
  */
 function stopMusic() {
     musicPlayer.stop();
-    // Bağlantıyı hemen koparmayalım, belki TTS konuşur
 }
 
 /**
  * SESLİ OKUMA FONKSİYONU
  */
 async function speak(channel, text, config) {
-    // Müzik çalıyorsa duraklat
     musicPlayer.pause();
     console.log(`[TTS] Mesaj okunuyor: ${text}`);
 
@@ -109,14 +94,10 @@ async function speak(channel, text, config) {
             });
             currentConnection = connection;
 
-            // Bağlantı hazırlığını kontrol et
-            try {
-                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 5000);
-            } catch (e) {
-                console.error('[TTS] Bağlantı Hazır Değil!', e);
-            }
-
+            // Google TTS URL'si
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
+
+            // TTS'i stream olarak işle
             const resource = createAudioResource(ttsUrl, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
@@ -129,24 +110,19 @@ async function speak(channel, text, config) {
             audioPlayer.once(AudioPlayerStatus.Idle, () => {
                 console.log('[TTS] Konuşma bitti.');
                 setTimeout(() => {
-                    // KONUŞMA BİTİNCE MÜZİK ÇALARA TEKRAR ABONE OL
-                    if (currentConnection) {
-                        currentConnection.subscribe(musicPlayer);
-                    }
+                    if (currentConnection) currentConnection.subscribe(musicPlayer);
                     musicPlayer.unpause();
                     resolve();
-                }, 500);
+                }, 1000);
             });
 
             audioPlayer.once('error', error => {
-                console.error('[TTS ERROR] Player:', error);
-                if (currentConnection) currentConnection.subscribe(musicPlayer);
+                console.error('[TTS ERROR]', error);
                 musicPlayer.unpause();
                 resolve();
             });
         } catch (error) {
-            console.error('[TTS ERROR] General:', error);
-            if (currentConnection) currentConnection.subscribe(musicPlayer);
+            console.error('[TTS FATAL ERROR]', error);
             musicPlayer.unpause();
             resolve();
         }
