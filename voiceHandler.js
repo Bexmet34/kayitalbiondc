@@ -51,15 +51,25 @@ async function playMusic(channel) {
             const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
             console.log(`[VOICE] Müzik çekiliyor: ${randomMusic}`);
 
-            // URL'yi stream olarak işle
+            // VPS üzerinde en güvenli yöntem: Arbitrary StreamType
             const resource = createAudioResource(randomMusic, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
-            resource.volume.setVolume(0.3);
+            resource.volume.setVolume(0.4);
 
             connection.subscribe(musicPlayer);
             musicPlayer.play(resource);
+
+            // Çalma durumunu kontrol et
+            setTimeout(() => {
+                if (musicPlayer.state.status === AudioPlayerStatus.Idle) {
+                    console.log('[VOICE] UYARI: Müzik anında durdu, tekrar deneniyor...');
+                    const retryResource = createAudioResource(randomMusic, { inputType: StreamType.Arbitrary, inlineVolume: true });
+                    retryResource.volume.setVolume(0.4);
+                    musicPlayer.play(retryResource);
+                }
+            }, 1000);
 
             resolve(true);
         } catch (error) {
@@ -94,10 +104,9 @@ async function speak(channel, text, config) {
             });
             currentConnection = connection;
 
-            // Google TTS URL'si
+            // Google TTS URL'si - Gelişmiş URL
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
 
-            // TTS'i stream olarak işle
             const resource = createAudioResource(ttsUrl, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
