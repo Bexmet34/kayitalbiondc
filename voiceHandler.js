@@ -1,45 +1,33 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 const voiceConfig = require('./voiceConfig');
+const voiceMessages = require('./voiceMessages');
 const db = require('./db');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 // Durum Yönetimi
 let userQueue = [];
 let isProcessing = false;
-// Müzik Listesi (Örnek URLler veya Yerel Dosyalar)
-const musicList = [
-    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3'
-];
 
 let audioPlayer = createAudioPlayer();
-let musicPlayer = createAudioPlayer();
 
 // DEBUG İÇİN DURUM TAKİBİ
 audioPlayer.on('stateChange', (oldState, newState) => {
-    console.log(`[TTS] ${oldState.status} -> ${newState.status}`);
-});
-musicPlayer.on('stateChange', (oldState, newState) => {
-    console.log(`[MUSIC] ${oldState.status} -> ${newState.status}`);
+    if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS] ${oldState.status} -> ${newState.status}`);
 });
 audioPlayer.on('error', error => console.error('[TTS ERROR]', error));
-musicPlayer.on('error', error => console.error('[MUSIC ERROR]', error));
 
 // Bellek sızıntısı uyarısını engellemek için limitleri kaldırıyoruz
 audioPlayer.setMaxListeners(0);
-musicPlayer.setMaxListeners(0);
 
 let currentConnection = null;
 
+
 /**
- * MÜZİK ÇALMA FONKSİYONU
+ * VIP KULLANICI İÇİN ÖZEL SES ÇALMA
  */
-async function playMusic(channel) {
+async function playVipSound(channel, config) {
     return new Promise(async (resolve) => {
         try {
-            console.log(`[VOICE] Kanala giriliyor: ${channel.name}`);
-
             const connection = joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
@@ -49,49 +37,45 @@ async function playMusic(channel) {
             });
             currentConnection = connection;
 
-            // BAĞLANTIYI BEKLE (VPS İÇİN KRİTİK)
+            // Bağlantıyı bekle
             try {
                 await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
-                console.log('[VOICE] Bağlantı Hazır (Ready)!');
             } catch (e) {
-                console.error('[VOICE] Bağlantı zamanaşımına uğradı!');
+                console.error('[VIP SOUND] Bağlantı hatası:', e.message);
                 return resolve(false);
             }
 
-            const randomMusic = musicList[Math.floor(Math.random() * musicList.length)];
-            const resource = createAudioResource(randomMusic, {
+            const resource = createAudioResource(config.VIP_SOUND_FILE || voiceConfig.VIP_SOUND_FILE, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
 
-            if (resource.volume) resource.volume.setVolume(0.35);
+            if (resource.volume) {
+                resource.volume.setVolume(config.VIP_SOUND_VOLUME || voiceConfig.VIP_SOUND_VOLUME || 0.5);
+            }
 
-            connection.subscribe(musicPlayer);
-            musicPlayer.play(resource);
+            connection.subscribe(audioPlayer);
+            audioPlayer.play(resource);
 
-            console.log(`[VOICE] Oynatılıyor: ${randomMusic}`);
-            resolve(true);
+            audioPlayer.once(AudioPlayerStatus.Idle, () => {
+                resolve(true);
+            });
+
+            audioPlayer.once('error', error => {
+                console.error('[VIP SOUND ERROR]', error);
+                resolve(false);
+            });
         } catch (error) {
-            console.error('[VOICE ERROR] playMusic:', error);
+            console.error('[VIP SOUND FATAL ERROR]', error);
             resolve(false);
         }
     });
 }
 
 /**
- * MÜZİK DURDURMA FONKSİYONU
+ * GENEL SES DOSYASI ÇALMA FONKSİYONU
  */
-function stopMusic() {
-    musicPlayer.stop();
-}
-
-/**
- * SESLİ OKUMA FONKSİYONU
- */
-async function speak(channel, text, config) {
-    musicPlayer.pause();
-    console.log(`[TTS] Okunuyor: ${text}`);
-
+async function playSoundFile(channel, soundFilePath, config) {
     return new Promise(async (resolve) => {
         try {
             const connection = joinVoiceChannel({
@@ -103,42 +87,145 @@ async function speak(channel, text, config) {
             });
             currentConnection = connection;
 
-            // BAĞLANTIYI BEKLE
+            // Bağlantıyı bekle
             try {
                 await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
             } catch (e) {
-                console.error('[TTS] Bağlantı Hatası');
-                return resolve();
+                console.error('[SOUND FILE] Bağlantı hatası:', e.message);
+                return resolve(false);
             }
 
-            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
-            const resource = createAudioResource(ttsUrl, {
+            const resource = createAudioResource(soundFilePath, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
 
-            if (resource.volume) resource.volume.setVolume(config.VOLUME || voiceConfig.VOLUME || 1.0);
+            if (resource.volume) {
+                const volume = config.SOUND_FILES_VOLUME || voiceConfig.SOUND_FILES_VOLUME || 0.5;
+                resource.volume.setVolume(volume);
+            }
 
             connection.subscribe(audioPlayer);
             audioPlayer.play(resource);
 
             audioPlayer.once(AudioPlayerStatus.Idle, () => {
-                console.log('[TTS] Bitti.');
+                resolve(true);
+            });
+
+            audioPlayer.once('error', error => {
+                console.error('[SOUND FILE ERROR]', error);
+                resolve(false);
+            });
+        } catch (error) {
+            console.error('[SOUND FILE FATAL ERROR]', error);
+            resolve(false);
+        }
+    });
+}
+
+/**
+ * AKILLI SES ÇALMA - Ses dosyası varsa onu kullan, yoksa TTS kullan
+ */
+async function speakOrPlaySound(channel, text, soundFileKey, config) {
+    const useSoundFiles = config.USE_SOUND_FILES !== undefined ? config.USE_SOUND_FILES : voiceConfig.USE_SOUND_FILES;
+
+    if (useSoundFiles && soundFileKey) {
+        // Ses dosyası yolunu al
+        let soundFilePath = null;
+
+        switch (soundFileKey) {
+            case 'welcome':
+                soundFilePath = config.SOUND_WELCOME || voiceConfig.SOUND_WELCOME;
+                break;
+            case 'staff_found':
+                soundFilePath = config.SOUND_STAFF_FOUND || voiceConfig.SOUND_STAFF_FOUND;
+                break;
+            case 'staff_not_found':
+                soundFilePath = config.SOUND_STAFF_NOT_FOUND || voiceConfig.SOUND_STAFF_NOT_FOUND;
+                break;
+            case 'staff_notify':
+                soundFilePath = config.SOUND_STAFF_NOTIFY || voiceConfig.SOUND_STAFF_NOTIFY;
+                break;
+        }
+
+        if (soundFilePath) {
+            console.log(`[SOUND] Ses dosyası çalınıyor: ${soundFilePath}`);
+            return await playSoundFile(channel, soundFilePath, config);
+        }
+    }
+
+    // Ses dosyası yoksa veya USE_SOUND_FILES false ise TTS kullan
+    return await speak(channel, text, config);
+}
+
+/**
+ * SESLİ OKUMA FONKSİYONU
+ */
+async function speak(channel, text, config) {
+    if (voiceConfig.SHOW_TTS_LOGS) {
+        console.log(`[TTS] Okunuyor: ${text}`);
+        console.log(`[TTS] Kanal:`, channel.name, `(${channel.id})`);
+    }
+
+    return new Promise(async (resolve) => {
+        try {
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Ses kanalına bağlanılıyor...');
+            const connection = joinVoiceChannel({
+                channelId: channel.id,
+                guildId: channel.guild.id,
+                adapterCreator: channel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false
+            });
+            currentConnection = connection;
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Bağlantı oluşturuldu, Ready durumu bekleniyor...');
+
+            // BAĞLANTIYI BEKLE
+            try {
+                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
+                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Bağlantı Ready durumunda!');
+            } catch (e) {
+                console.error('[TTS] ❌ Bağlantı Hatası - Ready durumuna geçemedi:', e.message);
+                return resolve();
+            }
+
+            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] TTS URL:', ttsUrl);
+
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Audio resource oluşturuluyor...');
+            const resource = createAudioResource(ttsUrl, {
+                inputType: StreamType.Arbitrary,
+                inlineVolume: true
+            });
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Audio resource oluşturuldu');
+
+            const volume = config.TTS_VOLUME || voiceConfig.TTS_VOLUME || 0.5;
+            if (resource.volume) {
+                resource.volume.setVolume(volume);
+                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Ses seviyesi ayarlandı:', volume);
+            }
+
+            if (voiceConfig.SHOW_TTS_LOGS) {
+                console.log('[TTS] Connection subscribe ediliyor...');
+            }
+            connection.subscribe(audioPlayer);
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Audio player başlatılıyor...');
+            audioPlayer.play(resource);
+            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Audio player PLAY komutu verildi');
+
+            audioPlayer.once(AudioPlayerStatus.Idle, () => {
+                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Oynatma tamamlandı (Idle)');
                 setTimeout(() => {
-                    if (currentConnection) currentConnection.subscribe(musicPlayer);
-                    musicPlayer.unpause();
                     resolve();
                 }, 1000);
             });
 
             audioPlayer.once('error', error => {
-                console.error('[TTS ERROR]', error);
-                musicPlayer.unpause();
+                console.error('[TTS ERROR] Oynatma hatası:', error);
                 resolve();
             });
         } catch (error) {
             console.error('[TTS FATAL ERROR]', error);
-            musicPlayer.unpause();
             resolve();
         }
     });
@@ -164,26 +251,53 @@ async function processQueue() {
     try {
         const guild = channel.guild;
 
-        // Önce her zaman yazılı bildirim gönderiyoruz (Kullanıcı mesaj gelmiyor dediği için)
+        // Önce her zaman yazılı bildirim gönderiyoruz
         await sendStaffAlert(guild, member, config);
 
-        // Sonra sesli bildirim için yetkilileri ara
-        const staffChannels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 'GUILD_VOICE') && c.id !== channel.id);
-        let activeStaffFound = false;
+        // VIP KULLANICI KONTROLÜ - Öncelikli olarak kontrol edilir
+        const vipUserId = config.VIP_USER_ID || voiceConfig.VIP_USER_ID;
+        let vipStaffFound = false;
+        let vipChannel = null;
 
-        for (const [id, sChannel] of staffChannels) {
-            const staff = sChannel.members.find(m => !m.user.bot && m.roles.cache.has(config.STAFF_ROLE_ID));
-            if (staff) {
-                activeStaffFound = true;
-                await speak(sChannel, `Selamlar yetkili, ${member.displayName} kayıt kanalında bekliyor.`, config);
+        if (vipUserId) {
+            const staffChannels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 'GUILD_VOICE') && c.id !== channel.id);
+
+            for (const [id, sChannel] of staffChannels) {
+                const vipUser = sChannel.members.find(m => m.id === vipUserId && !m.user.bot);
+                if (vipUser) {
+                    vipStaffFound = true;
+                    vipChannel = sChannel;
+                    console.log(`[VIP] VIP kullanıcı bulundu: ${vipUser.displayName} - Özel ses çalınıyor...`);
+
+                    // VIP kullanıcı için özel ses çal
+                    await playVipSound(sChannel, config);
+
+                    // Kullanıcıya bilgi ver
+                    await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_found', config);
+                    break;
+                }
             }
         }
 
-        // Kullanıcıya bilgi ver
-        if (activeStaffFound) {
-            await speak(channel, `Yetkililere sesli mesaj iletildi, birazdan burada olacaklar.`, config);
-        } else {
-            await speak(channel, `Şu an aktif sesli yetkili bulamadım ama tüm ekibe yazılı mesaj gönderdim. En kısa sürede gelecekler.`, config);
+        // VIP bulunamadıysa normal yetkili arama
+        if (!vipStaffFound) {
+            const staffChannels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 'GUILD_VOICE') && c.id !== channel.id);
+            let activeStaffFound = false;
+
+            for (const [id, sChannel] of staffChannels) {
+                const staff = sChannel.members.find(m => !m.user.bot && m.roles.cache.has(config.STAFF_ROLE_ID));
+                if (staff) {
+                    activeStaffFound = true;
+                    await speakOrPlaySound(sChannel, voiceMessages.staff.notifyStaff(member.displayName), 'staff_notify', config);
+                }
+            }
+
+            // Kullanıcıya bilgi ver
+            if (activeStaffFound) {
+                await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_found', config);
+            } else {
+                await speakOrPlaySound(channel, voiceMessages.staff.staffNotFound(), 'staff_not_found', config);
+            }
         }
     } catch (err) {
         console.error("Sesli işlem hatası:", err);
@@ -235,19 +349,45 @@ async function handleVoiceStateUpdate(oldState, newState) {
     const guildId = newState.guild.id;
     const config = db.getGuildConfig(guildId) || voiceConfig;
 
-    if (!config || !config.ENABLED || config.VOICE_CHANNEL_ID === 'YAPI_BEKLEYEN_SES_KANAL_ID') return;
+    if (voiceConfig.SHOW_VOICE_EVENTS) {
+        console.log('[VOICE EVENT] Voice state update detected');
+        console.log('[VOICE EVENT] Config:', config ? 'Loaded' : 'Missing');
+        console.log('[VOICE EVENT] Enabled:', config?.ENABLED);
+        console.log('[VOICE EVENT] Voice Channel ID:', config?.VOICE_CHANNEL_ID);
+    }
+
+    if (!config || !config.ENABLED || config.VOICE_CHANNEL_ID === 'YAPI_BEKLEYEN_SES_KANAL_ID') {
+        if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Sistem devre dışı veya yapılandırılmamış');
+        return;
+    }
 
     // Kanal Giriş Kontrolü
     if (newState.channelId === config.VOICE_CHANNEL_ID && oldState.channelId !== newState.channelId) {
         const member = newState.member;
-        if (!member || member.user.bot) return;
+        if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kullanıcı kayıt kanalına girdi:', member?.user?.tag);
+
+        if (!member || member.user.bot) {
+            if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Bot veya member yok, işlem iptal');
+            return;
+        }
+
+        if (voiceConfig.SHOW_VOICE_EVENTS) {
+            console.log('[VOICE EVENT] Kullanıcı rolleri:', member.roles.cache.map(r => r.name).join(', '));
+            console.log('[VOICE EVENT] Aranan rol ID:', config.TARGET_ROLE_ID);
+            console.log('[VOICE EVENT] Rol kontrolü:', member.roles.cache.has(config.TARGET_ROLE_ID) ? 'BAŞARILI' : 'BAŞARISIZ');
+        }
 
         // Rol Kontrolü (Sadece kayıtsızlar için)
         if (member.roles.cache.has(config.TARGET_ROLE_ID)) {
+            if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Karşılama mesajı gönderiliyor...');
             // Sadece Hoş geldin sesli mesajı (Yetkili bildirimi kaldırıldı)
-            await speak(newState.channel, `Merhaba ${member.displayName}, hoş geldin. Kayıt olmak için lütfen metin kanalındaki butona tıklayarak yetkili çağır.`, config);
+            await speakOrPlaySound(newState.channel, voiceMessages.welcome.userJoined(member.displayName), 'welcome', config);
+        } else {
+            if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kullanıcının kayıtsız rolü yok, karşılama mesajı gönderilmedi');
         }
+    } else {
+        if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kanal eşleşmedi. Beklenen:', config.VOICE_CHANNEL_ID, 'Gelen:', newState.channelId);
     }
 }
 
-module.exports = { handleVoiceStateUpdate, startStaffSearch, playMusic, stopMusic };
+module.exports = { handleVoiceStateUpdate, startStaffSearch };

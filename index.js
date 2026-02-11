@@ -87,11 +87,9 @@ client.once(Events.ClientReady, async () => {
     }
 });
 
-const { handleVoiceStateUpdate, startStaffSearch, playMusic, stopMusic } = require('./voiceHandler');
+const { handleVoiceStateUpdate, startStaffSearch } = require('./voiceHandler');
 const { checkCooldown, setCooldown } = require('./cooldown');
 
-// Müzik durumu (Basit bir kontrol için)
-let isPlayingMusic = false;
 
 client.on('interactionCreate', async interaction => {
     try {
@@ -128,37 +126,7 @@ client.on('interactionCreate', async interaction => {
                 startStaffSearch(member, member.voice.channel, config).catch(e => console.error('Staff search error:', e));
             }
 
-            // 2. TOGGLE MUSIC
-            else if (customId === 'toggle_music') {
-                const member = interaction.member;
-                if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
-                    return interaction.reply({ content: `❌ Önce <#${config.VOICE_CHANNEL_ID}> kanalına giriniz!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
-                }
-
-                await interaction.deferUpdate().catch(() => { });
-
-                if (!isPlayingMusic) {
-                    const result = await playMusic(member.voice.channel);
-                    if (result) {
-                        isPlayingMusic = true;
-                        const newRow = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
-                            new ButtonBuilder().setCustomId('toggle_music').setLabel('Müziği Durdur').setStyle(ButtonStyle.Danger).setEmoji('⏹️')
-                        );
-                        await interaction.editReply({ components: [newRow] }).catch(() => { });
-                    }
-                } else {
-                    stopMusic();
-                    isPlayingMusic = false;
-                    const newRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('notify_staff').setLabel('Yetkiliye Haber Ver').setStyle(ButtonStyle.Primary).setEmoji('📢'),
-                        new ButtonBuilder().setCustomId('toggle_music').setLabel('Müzik Çal').setStyle(ButtonStyle.Secondary).setEmoji('🎵')
-                    );
-                    await interaction.editReply({ components: [newRow] }).catch(() => { });
-                }
-            }
-
-            // 3. START REGISTRATION (Staff Side)
+            // 2. START REGISTRATION (Staff Side)
             else if (customId.startsWith('register_user_')) {
                 if (!interaction.member.roles.cache.has(config.STAFF_ROLE_ID)) {
                     return interaction.reply({ content: '❌ Bu işlemi yapmak için yetkiniz yok!', flags: [MessageFlags.Ephemeral] }).catch(() => { });
@@ -180,6 +148,7 @@ client.on('interactionCreate', async interaction => {
 
         // --- MODAL SUBMISSIONS ---
         else if (interaction.isModalSubmit()) {
+            // Kayıt Modal Submit
             if (interaction.customId.startsWith('register_modal_')) {
                 await interaction.deferReply().catch(() => { });
 
@@ -241,10 +210,18 @@ client.on('interactionCreate', async interaction => {
         if (!channel) return interaction.reply({ content: 'Karşılama kanalı bulunamadı.', flags: [MessageFlags.Ephemeral] });
 
         const embed = new EmbedBuilder()
-            .setTitle('🎙️ Kayıt İşlemi')
+            .setTitle('🎙️ Kayıt İşlemi Başladı!')
             .setColor('Gold')
-            .setDescription(`Hoş geldin! Kayıt olmak için lütfen aşağıdaki butona tıklayarak bir yetkili çağırın.\n\n⚠️ Butona basmadan önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmiş olmanız gerekmektedir.`)
-            .setFooter({ text: 'Gelişmiş Sesli Kayıt Sistemi' });
+            .setDescription(
+                `**Hoş geldin! Kayıt için adımlar çok basit:**\n\n` +
+                `1️⃣ **Ses kanalına giriş yap** (<#${config.VOICE_CHANNEL_ID}>)\n` +
+                `2️⃣ **Yetkili çağır** butonuna tıkla\n\n` +
+                `⚡ **Not:** Lütfen sabırlı ol, yetkililer kısa süre içinde kaydını alacak.\n\n` +
+                `💡 Bu sistem ** <@407234961582587916> ** tarafından hazırlandı: `
+            )
+            .setFooter({ text: 'Gelişmiş Sesli Kayıt Sistemi' })
+            .setTimestamp();
+
 
         const row = new ActionRowBuilder()
             .addComponents(
@@ -252,12 +229,7 @@ client.on('interactionCreate', async interaction => {
                     .setCustomId('notify_staff')
                     .setLabel('Yetkiliye Haber Ver')
                     .setStyle(ButtonStyle.Primary)
-                    .setEmoji('📢'),
-                new ButtonBuilder()
-                    .setCustomId('toggle_music')
-                    .setLabel('Müzik Çal')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🎵')
+                    .setEmoji('📢')
             );
 
         await channel.send({ embeds: [embed], components: [row] });
