@@ -291,8 +291,8 @@ async function processQueue() {
 
         // 3. KULLANICIYA SONUCU BİLDİR (KAYIT KANALINDA)
         if (staffFoundAtAll) {
-            // Herhangi bir yetkili (VIP veya normal) bulunduysa kullanıcıya "Yetkili Bulundu" sesi çal
-            await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_found', config);
+            // Herhangi bir yetkili (VIP veya normal) bulunduysa kullanıcıya "Yetkiliye haber verildi" sesi çal
+            await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_notify', config);
         } else {
             // Hiç kimse bulunamadıysa
             await speakOrPlaySound(channel, voiceMessages.staff.staffNotFound(), 'staff_not_found', config);
