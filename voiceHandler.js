@@ -269,11 +269,11 @@ async function processQueue() {
                     vipChannel = sChannel;
                     console.log(`[VIP] VIP kullanıcı bulundu: ${vipUser.displayName} - Özel ses çalınıyor...`);
 
-                    // VIP kullanıcı için özel ses çal
-                    await playVipSound(sChannel, config);
+                    // Güngör'ün kanalında yetkili bildirimi çal
+                    await speakOrPlaySound(sChannel, voiceMessages.staff.notifyStaff(member.displayName), 'staff_notify', config);
 
-                    // Kullanıcıya bilgi ver
-                    await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_found', config);
+                    // Bekleyen kullanıcıya Güngör'ün özel sesini çal (yetkili bulundu yerine)
+                    await playVipSound(channel, config);
                     break;
                 }
             }
