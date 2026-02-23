@@ -31,20 +31,13 @@ module.exports = {
     TTS_SPEED: 1.0,             // Konuşma hızı (0.5 = yavaş, 1.0 = normal, 2.0 = hızlı)
 
     // ============================================
-    // VIP KULLANICI AYARLARI
-    // ============================================
-    VIP_USER_ID: '407234961582587916',          // Özel ses çalacak kullanıcı ID
-    VIP_SOUND_FILE: './sound/gungoricin.mp3',   // VIP kullanıcı için özel ses dosyası
-    VIP_SOUND_VOLUME: 0.5,                      // VIP ses dosyası ses seviyesi
-
-    // ============================================
     // SES DOSYALARI (TTS yerine MP3 kullanımı)
     // ============================================
     USE_SOUND_FILES: true,                              // MP3 dosyaları kullan (false = TTS kullan)
-    SOUND_WELCOME: './sound/ilkkarsilama.mp3',          // İlk karşılama sesi
+    SOUND_WELCOME: './sound/karsilama.mp3',             // İlk karşılama sesi
     SOUND_STAFF_FOUND: './sound/yetkilibulundu.mp3',    // Yetkili bulundu sesi
     SOUND_STAFF_NOT_FOUND: './sound/yetkilibulunamadi.mp3',  // Yetkili bulunamadı sesi
-    SOUND_STAFF_NOTIFY: './sound/yetkiliseskanalinda.mp3',   // Yetkili ses kanalında bildirim
+    SOUND_STAFF_NOTIFY: './sound/yetkilicagirma.mp3',   // Yetkili ses kanalında bildirim
     SOUND_FILES_VOLUME: 0.5,                            // Ses dosyaları genel ses seviyesi
 
     // ============================================

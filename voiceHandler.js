@@ -22,55 +22,6 @@ audioPlayer.setMaxListeners(0);
 let currentConnection = null;
 
 
-/**
- * VIP KULLANICI İÇİN ÖZEL SES ÇALMA
- */
-async function playVipSound(channel, config) {
-    return new Promise(async (resolve) => {
-        try {
-            const connection = joinVoiceChannel({
-                channelId: channel.id,
-                guildId: channel.guild.id,
-                adapterCreator: channel.guild.voiceAdapterCreator,
-                selfDeaf: false,
-                selfMute: false
-            });
-            currentConnection = connection;
-
-            // Bağlantıyı bekle
-            try {
-                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
-            } catch (e) {
-                console.error('[VIP SOUND] Bağlantı hatası:', e.message);
-                return resolve(false);
-            }
-
-            const resource = createAudioResource(config.VIP_SOUND_FILE || voiceConfig.VIP_SOUND_FILE, {
-                inputType: StreamType.Arbitrary,
-                inlineVolume: true
-            });
-
-            if (resource.volume) {
-                resource.volume.setVolume(config.VIP_SOUND_VOLUME || voiceConfig.VIP_SOUND_VOLUME || 0.5);
-            }
-
-            connection.subscribe(audioPlayer);
-            audioPlayer.play(resource);
-
-            audioPlayer.once(AudioPlayerStatus.Idle, () => {
-                resolve(true);
-            });
-
-            audioPlayer.once('error', error => {
-                console.error('[VIP SOUND ERROR]', error);
-                resolve(false);
-            });
-        } catch (error) {
-            console.error('[VIP SOUND FATAL ERROR]', error);
-            resolve(false);
-        }
-    });
-}
 
 /**
  * GENEL SES DOSYASI ÇALMA FONKSİYONU
@@ -254,47 +205,26 @@ async function processQueue() {
         // Önce her zaman yazılı bildirim gönderiyoruz
         await sendStaffAlert(guild, member, config);
 
-        // VIP KULLANICI KONTROLÜ
-        const vipUserId = config.VIP_USER_ID || voiceConfig.VIP_USER_ID;
         let staffFoundAtAll = false;
-        let vipFound = false;
 
-        // 1. ÖNCE VIP (GÜNGÖR) KONTROLÜ
+        // 1. DİĞER KANALLARDAKİ YETKİLİLERE HABER VER
         const allChannels = guild.channels.cache.filter(c => (c.type === 2 || c.type === 'GUILD_VOICE') && c.id !== channel.id);
 
-        if (vipUserId) {
-            for (const [id, sChannel] of allChannels) {
-                const vipUser = sChannel.members.find(m => m.id === vipUserId && !m.user.bot);
-                if (vipUser) {
-                    vipFound = true;
-                    staffFoundAtAll = true;
-                    console.log(`[VIP] VIP kullanıcı bulundu: ${vipUser.displayName} - Sadece ona özel ses çalınıyor...`);
-
-                    // Sadece VIP kullanıcının kanalında özel sesini çal
-                    await playVipSound(sChannel, config);
-                    break;
-                }
+        for (const [id, sChannel] of allChannels) {
+            const staff = sChannel.members.find(m => !m.user.bot && m.roles.cache.has(config.STAFF_ROLE_ID));
+            if (staff) {
+                staffFoundAtAll = true;
+                // Diğer yetkililerin kanalında standart bildirim çal
+                await speakOrPlaySound(sChannel, voiceMessages.staff.notifyStaff(member.displayName), 'staff_notify', config);
             }
         }
 
-        // 2. VIP BULUNAMADIYSA DİĞER YETKİLİLERE HABER VER
-        if (!vipFound) {
-            for (const [id, sChannel] of allChannels) {
-                const staff = sChannel.members.find(m => !m.user.bot && m.roles.cache.has(config.STAFF_ROLE_ID));
-                if (staff) {
-                    staffFoundAtAll = true;
-                    // Diğer yetkililerin kanalında standart bildirim çal
-                    await speakOrPlaySound(sChannel, voiceMessages.staff.notifyStaff(member.displayName), 'staff_notify', config);
-                }
-            }
-        }
-
-        // 3. KULLANICIYA SONUCU BİLDİR (KAYIT KANALINDA)
+        // 2. KULLANICIYA SONUCU BİLDİR (KAYIT KANALINDA)
         if (staffFoundAtAll) {
-            // Herhangi bir yetkili (VIP veya normal) bulunduysa kullanıcıya "Yetkili Bulundu" sesi çal (yetkilibulundu.mp3)
+            // Herhangi bir yetkili bulunduysa kullanıcıya "Yetkili Bulundu" sesi çal (yetkilibulundu.mp3)
             await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_found', config);
         } else {
-            // Hiç kimse bulunamadıysa
+            // Hiç kimse bulunamadıysa "Yetkili Bulunamadı" sesi çal (yetkilibulunamadi.mp3)
             await speakOrPlaySound(channel, voiceMessages.staff.staffNotFound(), 'staff_not_found', config);
         }
     } catch (err) {
