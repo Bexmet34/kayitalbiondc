@@ -29,20 +29,35 @@ let currentConnection = null;
 async function playSoundFile(channel, soundFilePath, config) {
     return new Promise(async (resolve) => {
         try {
-            const connection = joinVoiceChannel({
-                channelId: channel.id,
-                guildId: channel.guild.id,
-                adapterCreator: channel.guild.voiceAdapterCreator,
-                selfDeaf: true,
-                selfMute: false
-            });
-            currentConnection = connection;
+            let connection = getVoiceConnection(channel.guild.id);
+
+            // Aynı guild içinde başka kanala bağlıysa kapat
+            if (connection && connection.joinConfig.channelId !== channel.id) {
+                try {
+                    connection.destroy();
+                } catch (err) {}
+                connection = null;
+            }
+
+            if (!connection) {
+                connection = joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: channel.guild.id,
+                    adapterCreator: channel.guild.voiceAdapterCreator,
+                    selfDeaf: true,
+                    selfMute: false
+                });
+                currentConnection = connection;
+            }
 
             // Bağlantıyı bekle
             try {
-                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
+                if (connection.state.status !== VoiceConnectionStatus.Ready) {
+                    await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+                }
             } catch (e) {
                 console.error('[SOUND FILE] Bağlantı hatası:', e.message);
+                try { connection.destroy(); } catch(err) {}
                 return resolve(false);
             }
 
@@ -120,16 +135,19 @@ async function speak(channel, text, config) {
     return new Promise(async (resolve) => {
         try {
             let connection = getVoiceConnection(channel.guild.id);
-            
-            // Eğer bağlantı varsa ama Ready değilse veya başka kanaldaysa temizleyip taze başlayalım
-            if (connection) {
-                if (connection.state.status !== VoiceConnectionStatus.Ready || connection.joinConfig.channelId !== channel.id) {
-                    if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS] Eski/Hatalı bağlantı temizleniyor (${connection.state.status})`);
-                    connection.destroy();
-                    connection = null;
+
+            // Aynı guild içinde başka kanala bağlıysa kapat
+            if (connection && connection.joinConfig.channelId !== channel.id) {
+                if (voiceConfig.SHOW_TTS_LOGS) {
+                    console.log(`[TTS] Farklı kanaldaki bağlantı kapatılıyor (${connection.joinConfig.channelId} -> ${channel.id})`);
                 }
+                try {
+                    connection.destroy();
+                } catch (err) {}
+                connection = null;
             }
 
+            // Bağlantı yoksa yeni oluştur
             if (!connection) {
                 if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Yeni bağlantı oluşturuluyor...');
                 connection = joinVoiceChannel({
@@ -137,28 +155,29 @@ async function speak(channel, text, config) {
                     guildId: channel.guild.id,
                     adapterCreator: channel.guild.voiceAdapterCreator,
                     selfDeaf: true,
-                    selfMute: false,
-                    debug: true
+                    selfMute: false
                 });
                 currentConnection = connection;
+
+                // Listener'ı sadece yeni bağlantıda ekle
+                connection.on('stateChange', (oldState, newState) => {
+                    if (voiceConfig.SHOW_TTS_LOGS) {
+                        console.log(`[TTS CONNECTION] ${oldState.status} -> ${newState.status}`);
+                    }
+                });
             }
 
-            // Bağlantı durumlarını takip et
-            connection.on('stateChange', (oldState, newState) => {
-                if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS CONNECTION] ${oldState.status} -> ${newState.status}`);
-            });
-
-            // BAĞLANTIYI BEKLE
+            // Ready değilse biraz bekle
             try {
                 if (connection.state.status !== VoiceConnectionStatus.Ready) {
-                    await entersState(connection, VoiceConnectionStatus.Ready, 10000);
+                    await entersState(connection, VoiceConnectionStatus.Ready, 20000);
                     if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Bağlantı Ready!');
                 }
             } catch (e) {
-                console.error(`[TTS] ❌ Bağlantı Kurulamadı (Zaman Aşımı) - Durum: ${connection.state.status}`);
-                if (connection) {
-                    try { connection.destroy(); } catch(err) {}
-                }
+                console.error(`[TTS] ❌ Bağlantı Kurulamadı - Durum: ${connection.state.status} - Hata: ${e.message}`);
+                try {
+                    connection.destroy();
+                } catch (err) {}
                 currentConnection = null;
                 return resolve();
             }
@@ -307,6 +326,8 @@ async function sendStaffAlert(guild, applicant, config) {
  * EVENT HANDLER (index.js içine)
  */
 async function handleVoiceStateUpdate(oldState, newState) {
+    if (newState.member?.user?.bot) return;
+
     const guildId = newState.guild.id;
     const config = db.getGuildConfig(guildId) || voiceConfig;
 
