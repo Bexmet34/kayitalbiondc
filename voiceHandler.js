@@ -156,7 +156,9 @@ async function speak(channel, text, config) {
                 }
             } catch (e) {
                 console.error(`[TTS] ❌ Bağlantı Kurulamadı (Zaman Aşımı) - Durum: ${connection.state.status}`);
-                if (connection) connection.destroy();
+                if (connection) {
+                    try { connection.destroy(); } catch(err) {}
+                }
                 currentConnection = null;
                 return resolve();
             }
@@ -321,20 +323,14 @@ async function handleVoiceStateUpdate(oldState, newState) {
     }
 
     // Kanal Giriş Kontrolü
-    if (newState.channelId === config.VOICE_CHANNEL_ID && oldState.channelId !== newState.channelId) {
+    const isTargetChannel = newState.channelId === config.VOICE_CHANNEL_ID;
+    const isChannelChange = oldState.channelId !== newState.channelId;
+
+    if (isTargetChannel && isChannelChange) {
         const member = newState.member;
         if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kullanıcı kayıt kanalına girdi:', member?.user?.tag);
 
-        if (!member || member.user.bot) {
-            if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Bot veya member yok, işlem iptal');
-            return;
-        }
-
-        if (voiceConfig.SHOW_VOICE_EVENTS) {
-            console.log('[VOICE EVENT] Kullanıcı rolleri:', member.roles.cache.map(r => r.name).join(', '));
-            console.log('[VOICE EVENT] Aranan rol ID:', config.TARGET_ROLE_ID);
-            console.log('[VOICE EVENT] Rol kontrolü:', member.roles.cache.has(config.TARGET_ROLE_ID) ? 'BAŞARILI' : 'BAŞARISIZ');
-        }
+        if (!member || member.user.bot) return;
 
         // Rol Kontrolü (Sadece kayıtsızlar için)
         if (member.roles.cache.has(config.TARGET_ROLE_ID)) {
@@ -346,11 +342,14 @@ async function handleVoiceStateUpdate(oldState, newState) {
 
             // Sadece Hoş geldin sesli mesajı
             await speakOrPlaySound(newState.channel, customText, 'welcome', config);
-        } else {
-            if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kullanıcının kayıtsız rolü yok, karşılama mesajı gönderilmedi');
         }
+    } else if (isTargetChannel && !isChannelChange) {
+        // Kullanıcı zaten kanaldaydı (mute/unmute yaptı), bir şey yapmaya gerek yok
+        return;
     } else {
-        if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kanal eşleşmedi. Beklenen:', config.VOICE_CHANNEL_ID, 'Gelen:', newState.channelId);
+        if (voiceConfig.SHOW_VOICE_EVENTS && newState.channelId) {
+            console.log('[VOICE EVENT] Kanal uygun değil. Gelen:', newState.channelId, 'Beklenen:', config.VOICE_CHANNEL_ID);
+        }
     }
 }
 
