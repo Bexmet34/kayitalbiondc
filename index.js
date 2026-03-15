@@ -42,7 +42,31 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('id-bul')
-        .setDescription('Sunucu ve kanal IDlerini gösterir.')
+        .setDescription('Sunucu ve kanal IDlerini gösterir.'),
+
+    new SlashCommandBuilder()
+        .setName('tts-metin')
+        .setDescription('Google TTS okuma metinlerini ayarlar.')
+        .addStringOption(option => 
+            option.setName('tur')
+            .setDescription('Hangi metni ayarlamak istiyorsunuz?')
+            .setRequired(true)
+            .addChoices(
+                { name: 'Karşılama', value: 'karsilama' },
+                { name: 'Yetkili Bulundu', value: 'yetkili_bulundu' },
+                { name: 'Yetkili Bulunamadı', value: 'yetkili_bulunamadi' },
+                { name: 'Yetkiliye Haber Verilme', value: 'yetkili_bildirim' }
+            ))
+        .addStringOption(option => option.setName('metin').setDescription('Okunacak metin (giren kişi adı için {kullanici} yazın)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('tts-ses-seviyesi')
+        .setDescription('Botun TTS ses seviyesini ayarlar.')
+        .addNumberOption(option => option.setName('seviye').setDescription('0.1 ile 1.0 arasında bir değer (Örn: 0.5)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('bota-restart')
+        .setDescription('Botu yeniden başlatır. (Sadece Yöneticiler)')
 ].map(command => command.toJSON());
 
 // Gelenlere otomatik rol verme
@@ -287,6 +311,48 @@ client.on('interactionCreate', async interaction => {
             .setFooter({ text: 'Gelişmiş Sesli Kayıt Sistemi' });
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (interaction.commandName === 'tts-metin') {
+        // Only allow admins
+        if (!interaction.member.permissions.has('Administrator')) {
+            return interaction.reply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.', flags: [MessageFlags.Ephemeral] });
+        }
+        const tur = interaction.options.getString('tur');
+        const metin = interaction.options.getString('metin');
+        
+        let updateKey = '';
+        let turAdi = '';
+        if (tur === 'karsilama') { updateKey = 'TTS_WELCOME'; turAdi = 'Karşılama'; }
+        else if (tur === 'yetkili_bulundu') { updateKey = 'TTS_STAFF_FOUND'; turAdi = 'Yetkili Bulundu'; }
+        else if (tur === 'yetkili_bulunamadi') { updateKey = 'TTS_STAFF_NOT_FOUND'; turAdi = 'Yetkili Bulunamadı'; }
+        else if (tur === 'yetkili_bildirim') { updateKey = 'TTS_STAFF_NOTIFY'; turAdi = 'Yetkiliye Haber Verilme'; }
+
+        db.setGuildConfig(interaction.guildId, { [updateKey]: metin });
+        await interaction.reply({ content: `✅ **${turAdi}** metni başarıyla güncellendi:\n\n\`${metin}\``, flags: [MessageFlags.Ephemeral] });
+    }
+
+    if (interaction.commandName === 'tts-ses-seviyesi') {
+        if (!interaction.member.permissions.has('Administrator')) {
+            return interaction.reply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.', flags: [MessageFlags.Ephemeral] });
+        }
+        const seviye = interaction.options.getNumber('seviye');
+        if (seviye < 0 || seviye > 1) {
+            return interaction.reply({ content: '❌ Lütfen 0.0 ile 1.0 arasında bir değer girin.', flags: [MessageFlags.Ephemeral] });
+        }
+        db.setGuildConfig(interaction.guildId, { TTS_VOLUME: seviye });
+        await interaction.reply({ content: `✅ TTS Ses seviyesi **${seviye}** olarak ayarlandı.`, flags: [MessageFlags.Ephemeral] });
+    }
+
+    if (interaction.commandName === 'bota-restart') {
+        if (!interaction.member.permissions.has('Administrator')) {
+            return interaction.reply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.', flags: [MessageFlags.Ephemeral] });
+        }
+        
+        await interaction.reply({ content: '🔄 Bot yeniden başlatılıyor...', flags: [MessageFlags.Ephemeral] });
+        setTimeout(() => {
+            process.exit(0); // If using PM2, it will automatically restart
+        }, 1000);
     }
 });
 

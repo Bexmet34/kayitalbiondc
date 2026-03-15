@@ -215,17 +215,29 @@ async function processQueue() {
             if (staff) {
                 staffFoundAtAll = true;
                 // Diğer yetkililerin kanalında standart bildirim çal
-                await speakOrPlaySound(sChannel, voiceMessages.staff.notifyStaff(member.displayName), 'staff_notify', config);
+                let customText = config.TTS_STAFF_NOTIFY;
+                if (!customText) customText = voiceMessages.staff.notifyStaff(member.displayName);
+                else customText = customText.replace(/{kullanici}/g, member.displayName);
+
+                await speakOrPlaySound(sChannel, customText, 'staff_notify', config);
             }
         }
 
         // 2. KULLANICIYA SONUCU BİLDİR (KAYIT KANALINDA)
         if (staffFoundAtAll) {
             // Herhangi bir yetkili bulunduysa kullanıcıya "Yetkili Bulundu" sesi çal (yetkilibulundu.mp3)
-            await speakOrPlaySound(channel, voiceMessages.staff.staffFound(), 'staff_found', config);
+            let customText = config.TTS_STAFF_FOUND;
+            if (!customText) customText = voiceMessages.staff.staffFound();
+            else customText = customText.replace(/{kullanici}/g, member.displayName);
+
+            await speakOrPlaySound(channel, customText, 'staff_found', config);
         } else {
             // Hiç kimse bulunamadıysa "Yetkili Bulunamadı" sesi çal (yetkilibulunamadi.mp3)
-            await speakOrPlaySound(channel, voiceMessages.staff.staffNotFound(), 'staff_not_found', config);
+            let customText = config.TTS_STAFF_NOT_FOUND;
+            if (!customText) customText = voiceMessages.staff.staffNotFound();
+            else customText = customText.replace(/{kullanici}/g, member.displayName);
+
+            await speakOrPlaySound(channel, customText, 'staff_not_found', config);
         }
     } catch (err) {
         console.error("Sesli işlem hatası:", err);
@@ -308,8 +320,13 @@ async function handleVoiceStateUpdate(oldState, newState) {
         // Rol Kontrolü (Sadece kayıtsızlar için)
         if (member.roles.cache.has(config.TARGET_ROLE_ID)) {
             if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Karşılama mesajı gönderiliyor...');
-            // Sadece Hoş geldin sesli mesajı (Yetkili bildirimi kaldırıldı)
-            await speakOrPlaySound(newState.channel, voiceMessages.welcome.userJoined(member.displayName), 'welcome', config);
+            
+            let customText = config.TTS_WELCOME;
+            if (!customText) customText = voiceMessages.welcome.userJoined(member.displayName);
+            else customText = customText.replace(/{kullanici}/g, member.displayName);
+
+            // Sadece Hoş geldin sesli mesajı
+            await speakOrPlaySound(newState.channel, customText, 'welcome', config);
         } else {
             if (voiceConfig.SHOW_VOICE_EVENTS) console.log('[VOICE EVENT] Kullanıcının kayıtsız rolü yok, karşılama mesajı gönderilmedi');
         }

@@ -33,7 +33,7 @@ module.exports = {
     // ============================================
     // SES DOSYALARI (TTS yerine MP3 kullanımı)
     // ============================================
-    USE_SOUND_FILES: true,                              // MP3 dosyaları kullan (false = TTS kullan)
+    USE_SOUND_FILES: false,                              // MP3 dosyaları kullan (false = TTS kullan)
     SOUND_WELCOME: './sound/karsilama.mp3',             // İlk karşılama sesi
     SOUND_STAFF_FOUND: './sound/yetkilibulundu.mp3',    // Yetkili bulundu sesi
     SOUND_STAFF_NOT_FOUND: './sound/yetkilibulunamadi.mp3',  // Yetkili bulunamadı sesi
