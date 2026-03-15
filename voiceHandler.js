@@ -121,40 +121,44 @@ async function speak(channel, text, config) {
         try {
             let connection = getVoiceConnection(channel.guild.id);
             
-            // Eğer bot başka bir kanaldaysa veya bağlantı yoksa yeni oluştur
-            if (!connection || connection.joinConfig.channelId !== channel.id) {
-                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Yeni bağlantı oluşturuluyor veya kanal değiştiriliyor...');
+            // Eğer bağlantı varsa ama Ready değilse veya başka kanaldaysa temizleyip taze başlayalım
+            if (connection) {
+                if (connection.state.status !== VoiceConnectionStatus.Ready || connection.joinConfig.channelId !== channel.id) {
+                    if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS] Eski/Hatalı bağlantı temizleniyor (${connection.state.status})`);
+                    connection.destroy();
+                    connection = null;
+                }
+            }
+
+            if (!connection) {
+                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Yeni bağlantı oluşturuluyor...');
                 connection = joinVoiceChannel({
                     channelId: channel.id,
                     guildId: channel.guild.id,
                     adapterCreator: channel.guild.voiceAdapterCreator,
                     selfDeaf: true,
-                    selfMute: false
+                    selfMute: false,
+                    debug: true
                 });
                 currentConnection = connection;
             }
 
-            // Bağlantı durumlarını takip et (Sadece bir kez ekle)
-            if (!connection.listeners('error').length) {
-                connection.on('error', error => console.error('[CONNECTION ERROR]', error));
-            }
+            // Bağlantı durumlarını takip et
+            connection.on('stateChange', (oldState, newState) => {
+                if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS CONNECTION] ${oldState.status} -> ${newState.status}`);
+            });
 
-            // BAĞLANTIYI BEKLE (Eğer hazır değilse)
-            if (connection.state.status !== VoiceConnectionStatus.Ready) {
-                try {
-                    if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS] Bağlantı durumu bekleniyor... Mevcut durum: ${connection.state.status}`);
-                    await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+            // BAĞLANTIYI BEKLE
+            try {
+                if (connection.state.status !== VoiceConnectionStatus.Ready) {
+                    await entersState(connection, VoiceConnectionStatus.Ready, 10000);
                     if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Bağlantı Ready!');
-                } catch (e) {
-                    console.error(`[TTS] ❌ Bağlantı Hatası - Durum: ${connection.state.status} - Hata: ${e.message}`);
-                    
-                    // Eğer bağlantı hatası aldıysa, bağlantıyı temizleyelim ki bir sonraki sefer temiz başlasın
-                    if (connection) {
-                        connection.destroy();
-                        currentConnection = null;
-                    }
-                    return resolve();
                 }
+            } catch (e) {
+                console.error(`[TTS] ❌ Bağlantı Kurulamadı (Zaman Aşımı) - Durum: ${connection.state.status}`);
+                if (connection) connection.destroy();
+                currentConnection = null;
+                return resolve();
             }
 
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
