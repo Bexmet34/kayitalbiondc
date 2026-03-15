@@ -88,24 +88,30 @@ client.once(Events.ClientReady, async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
     try {
-        console.log('Slash komutları yükleniyor...');
+        console.log('Slash komutları güncelleniyor, eski komutlar temizleniyor...');
 
-        // Global komutlar (Tüm sunucular için - yayılması 1 saat sürebilir)
+        // 1. Önce eski veya çift görünen tüm GLOBAL komutları temizleyelim (Silinmesi 1 saat sürebilir veya Discordu kapatıp açınca düzelir)
         await rest.put(
             Routes.applicationCommands(client.user.id),
-            { body: commands },
+            { body: [] },
         );
+        console.log('✅ Global komutlar sıfırlandı.');
 
-        // Hızlı test için GUILD_ID tanımlıysa o sunucuya özel de yükle
-        if (process.env.GUILD_ID) {
-            await rest.put(
-                Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
-                { body: commands },
-            );
-            console.log(`Komutlar ${process.env.GUILD_ID} sunucusuna özel olarak da yüklendi (Anında görünür).`);
+        // 2. Botun bulunduğu tüm sunuculara (Guild) tek tek yeni komutları ANINDA YANSIYACAK şekilde yükleyelim.
+        const guilds = client.guilds.cache.map(guild => guild.id);
+        for (const guildId of guilds) {
+            try {
+                await rest.put(
+                    Routes.applicationGuildCommands(client.user.id, guildId),
+                    { body: commands }
+                );
+                console.log(`✅ Komutlar ${guildId} ID'li sunucuya başarıyla yüklendi (Anında görünür).`);
+            } catch (err) {
+                console.error(`Sunucu ${guildId} için komut yükleme hatası:`, err);
+            }
         }
 
-        console.log('Slash komutları başarıyla yüklendi.');
+        console.log('🎉 Komut kurulumu başarıyla tamamlandı, çift komutlar Discordunuzu CTRL+R ile yeniledikten sonra gidecektir.');
     } catch (error) {
         console.error('Komut yükleme hatası:', error);
     }
