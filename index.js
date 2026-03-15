@@ -112,6 +112,13 @@ client.once(Events.ClientReady, async () => {
         }
 
         console.log('🎉 Komut kurulumu başarıyla tamamlandı, çift komutlar Discordunuzu CTRL+R ile yeniledikten sonra gidecektir.');
+        
+        // Ses kütüphaneleri kontrolü
+        try {
+            const voice = require('@discordjs/voice');
+            console.log('[DEBUG] Ses kütüphanesi raporu:');
+            console.log(voice.generateDependencyReport());
+        } catch (vErr) {}
     } catch (error) {
         console.error('Komut yükleme hatası:', error);
     }

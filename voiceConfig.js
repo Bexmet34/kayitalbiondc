@@ -43,7 +43,7 @@ module.exports = {
     // ============================================
     // DEBUG AYARLARI
     // ============================================
-    DEBUG_LOGS: false,          // Detaylı log mesajları göster
-    SHOW_VOICE_EVENTS: false,   // Ses kanalı olaylarını logla
-    SHOW_TTS_LOGS: false        // TTS işlemlerini logla
+    DEBUG_LOGS: true,          // Detaylı log mesajları göster
+    SHOW_VOICE_EVENTS: true,   // Ses kanalı olaylarını logla
+    SHOW_TTS_LOGS: true        // TTS işlemlerini logla
 };

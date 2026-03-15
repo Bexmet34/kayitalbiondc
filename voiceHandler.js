@@ -33,7 +33,7 @@ async function playSoundFile(channel, soundFilePath, config) {
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
-                selfDeaf: false,
+                selfDeaf: true,
                 selfMute: false
             });
             currentConnection = connection;
@@ -128,7 +128,7 @@ async function speak(channel, text, config) {
                     channelId: channel.id,
                     guildId: channel.guild.id,
                     adapterCreator: channel.guild.voiceAdapterCreator,
-                    selfDeaf: false,
+                    selfDeaf: true,
                     selfMute: false
                 });
                 currentConnection = connection;
@@ -142,17 +142,18 @@ async function speak(channel, text, config) {
             // BAĞLANTIYI BEKLE (Eğer hazır değilse)
             if (connection.state.status !== VoiceConnectionStatus.Ready) {
                 try {
-                    await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+                    if (voiceConfig.SHOW_TTS_LOGS) console.log(`[TTS] Bağlantı durumu bekleniyor... Mevcut durum: ${connection.state.status}`);
+                    await entersState(connection, VoiceConnectionStatus.Ready, 15000);
                     if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Bağlantı Ready!');
                 } catch (e) {
-                    // Aborted veya Timeout hatasını sessizce yönet veya tekrar dene
-                    if (e.message.includes('aborted') || e.message.includes('timeout')) {
-                        console.warn('[TTS] Bağlantı bekletiliyor, tekrar deneniyor...');
-                        // Kısa bir bekleme sonrası tekrar Ready kontrolü
-                    } else {
-                        console.error('[TTS] ❌ Bağlantı Hatası:', e.message);
-                        return resolve();
+                    console.error(`[TTS] ❌ Bağlantı Hatası - Durum: ${connection.state.status} - Hata: ${e.message}`);
+                    
+                    // Eğer bağlantı hatası aldıysa, bağlantıyı temizleyelim ki bir sonraki sefer temiz başlasın
+                    if (connection) {
+                        connection.destroy();
+                        currentConnection = null;
                     }
+                    return resolve();
                 }
             }
 
