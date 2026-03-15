@@ -1,4 +1,4 @@
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, getVoiceConnection, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const voiceConfig = require('./voiceConfig');
 const voiceMessages = require('./voiceMessages');
 const db = require('./db');
@@ -115,66 +115,80 @@ async function speakOrPlaySound(channel, text, soundFileKey, config) {
 async function speak(channel, text, config) {
     if (voiceConfig.SHOW_TTS_LOGS) {
         console.log(`[TTS] Okunuyor: ${text}`);
-        console.log(`[TTS] Kanal:`, channel.name, `(${channel.id})`);
     }
 
     return new Promise(async (resolve) => {
         try {
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Ses kanalına bağlanılıyor...');
-            const connection = joinVoiceChannel({
-                channelId: channel.id,
-                guildId: channel.guild.id,
-                adapterCreator: channel.guild.voiceAdapterCreator,
-                selfDeaf: false,
-                selfMute: false
-            });
-            currentConnection = connection;
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Bağlantı oluşturuldu, Ready durumu bekleniyor...');
+            let connection = getVoiceConnection(channel.guild.id);
+            
+            // Eğer bot başka bir kanaldaysa veya bağlantı yoksa yeni oluştur
+            if (!connection || connection.joinConfig.channelId !== channel.id) {
+                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Yeni bağlantı oluşturuluyor veya kanal değiştiriliyor...');
+                connection = joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: channel.guild.id,
+                    adapterCreator: channel.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false
+                });
+                currentConnection = connection;
+            }
 
-            // BAĞLANTIYI BEKLE
-            try {
-                await require('@discordjs/voice').entersState(connection, require('@discordjs/voice').VoiceConnectionStatus.Ready, 10000);
-                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Bağlantı Ready durumunda!');
-            } catch (e) {
-                console.error('[TTS] ❌ Bağlantı Hatası - Ready durumuna geçemedi:', e.message);
-                return resolve();
+            // Bağlantı durumlarını takip et (Sadece bir kez ekle)
+            if (!connection.listeners('error').length) {
+                connection.on('error', error => console.error('[CONNECTION ERROR]', error));
+            }
+
+            // BAĞLANTIYI BEKLE (Eğer hazır değilse)
+            if (connection.state.status !== VoiceConnectionStatus.Ready) {
+                try {
+                    await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+                    if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Bağlantı Ready!');
+                } catch (e) {
+                    // Aborted veya Timeout hatasını sessizce yönet veya tekrar dene
+                    if (e.message.includes('aborted') || e.message.includes('timeout')) {
+                        console.warn('[TTS] Bağlantı bekletiliyor, tekrar deneniyor...');
+                        // Kısa bir bekleme sonrası tekrar Ready kontrolü
+                    } else {
+                        console.error('[TTS] ❌ Bağlantı Hatası:', e.message);
+                        return resolve();
+                    }
+                }
             }
 
             const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=tr&client=tw-ob`;
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] TTS URL:', ttsUrl);
-
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Audio resource oluşturuluyor...');
             const resource = createAudioResource(ttsUrl, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Audio resource oluşturuldu');
 
             const volume = config.TTS_VOLUME || voiceConfig.TTS_VOLUME || 0.5;
             if (resource.volume) {
                 resource.volume.setVolume(volume);
-                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Ses seviyesi ayarlandı:', volume);
             }
 
-            if (voiceConfig.SHOW_TTS_LOGS) {
-                console.log('[TTS] Connection subscribe ediliyor...');
-            }
             connection.subscribe(audioPlayer);
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Audio player başlatılıyor...');
             audioPlayer.play(resource);
-            if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Audio player PLAY komutu verildi');
 
-            audioPlayer.once(AudioPlayerStatus.Idle, () => {
-                if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] ✅ Oynatma tamamlandı (Idle)');
-                setTimeout(() => {
-                    resolve();
-                }, 1000);
-            });
+            const onIdle = () => {
+                cleanup();
+                setTimeout(resolve, 1000);
+            };
 
-            audioPlayer.once('error', error => {
+            const onError = (error) => {
                 console.error('[TTS ERROR] Oynatma hatası:', error);
+                cleanup();
                 resolve();
-            });
+            };
+
+            const cleanup = () => {
+                audioPlayer.removeListener(AudioPlayerStatus.Idle, onIdle);
+                audioPlayer.removeListener('error', onError);
+            };
+
+            audioPlayer.once(AudioPlayerStatus.Idle, onIdle);
+            audioPlayer.once('error', onError);
+
         } catch (error) {
             console.error('[TTS FATAL ERROR]', error);
             resolve();

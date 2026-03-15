@@ -320,9 +320,10 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.commandName === 'tts-metin') {
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(() => { });
         // Only allow admins
         if (!interaction.member.permissions.has('Administrator')) {
-            return interaction.reply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.', flags: [MessageFlags.Ephemeral] });
+            return interaction.editReply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.' });
         }
         const tur = interaction.options.getString('tur');
         const metin = interaction.options.getString('metin');
@@ -335,29 +336,31 @@ client.on('interactionCreate', async interaction => {
         else if (tur === 'yetkili_bildirim') { updateKey = 'TTS_STAFF_NOTIFY'; turAdi = 'Yetkiliye Haber Verilme'; }
 
         db.setGuildConfig(interaction.guildId, { [updateKey]: metin });
-        await interaction.reply({ content: `✅ **${turAdi}** metni başarıyla güncellendi:\n\n\`${metin}\``, flags: [MessageFlags.Ephemeral] });
+        await interaction.editReply({ content: `✅ **${turAdi}** metni başarıyla güncellendi:\n\n\`${metin}\`` });
     }
 
     if (interaction.commandName === 'tts-ses-seviyesi') {
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(() => { });
         if (!interaction.member.permissions.has('Administrator')) {
-            return interaction.reply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.', flags: [MessageFlags.Ephemeral] });
+            return interaction.editReply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.' });
         }
         const seviye = interaction.options.getNumber('seviye');
         if (seviye < 0 || seviye > 1) {
-            return interaction.reply({ content: '❌ Lütfen 0.0 ile 1.0 arasında bir değer girin.', flags: [MessageFlags.Ephemeral] });
+            return interaction.editReply({ content: '❌ Lütfen 0.0 ile 1.0 arasında bir değer girin.' });
         }
         db.setGuildConfig(interaction.guildId, { TTS_VOLUME: seviye });
-        await interaction.reply({ content: `✅ TTS Ses seviyesi **${seviye}** olarak ayarlandı.`, flags: [MessageFlags.Ephemeral] });
+        await interaction.editReply({ content: `✅ TTS Ses seviyesi **${seviye}** olarak ayarlandı.` });
     }
 
     if (interaction.commandName === 'bota-restart') {
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] }).catch(() => { });
         if (!interaction.member.permissions.has('Administrator')) {
-            return interaction.reply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.', flags: [MessageFlags.Ephemeral] });
+            return interaction.editReply({ content: '❌ Bu komutu sadece yöneticiler kullanabilir.' });
         }
         
-        await interaction.reply({ content: '🔄 Bot yeniden başlatılıyor...', flags: [MessageFlags.Ephemeral] });
+        await interaction.editReply({ content: '🔄 Bot yeniden başlatılıyor...' });
         setTimeout(() => {
-            process.exit(0); // If using PM2, it will automatically restart
+            process.exit(0);
         }, 1000);
     }
 });
