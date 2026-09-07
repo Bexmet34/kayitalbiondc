@@ -22,20 +22,28 @@ audioPlayer.setMaxListeners(0);
 let currentConnection = null;
 
 // @discordjs/voice 0.18.0 UDP keepAlive bug fix
-// signalling->connecting->signalling döngüsünü çözer
+// connecting -> signalling döngüsünü çözer
+// Handler closure dışında tanımlanmalı - aynı referans on() ve off() için şart!
 function applyVoiceConnectionFix(connection) {
+    const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
+        const newUdp = Reflect.get(newNetworkState, 'udp');
+        if (newUdp?.keepAliveInterval) {
+            clearInterval(newUdp.keepAliveInterval);
+        }
+    };
+
     connection.on('stateChange', (oldState, newState) => {
         const oldNetworking = Reflect.get(oldState, 'networking');
         const newNetworking = Reflect.get(newState, 'networking');
 
-        const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
-            const newUdp = Reflect.get(newNetworkState, 'udp');
-            clearInterval(newUdp?.keepAliveInterval);
-        };
-
-        oldNetworking?.off('stateChange', networkStateChangeHandler);
-        newNetworking?.on('stateChange', networkStateChangeHandler);
+        if (oldNetworking && oldNetworking !== newNetworking) {
+            oldNetworking.off('stateChange', networkStateChangeHandler);
+        }
+        if (newNetworking && newNetworking !== oldNetworking) {
+            newNetworking.on('stateChange', networkStateChangeHandler);
+        }
     });
+
     return connection;
 }
 
