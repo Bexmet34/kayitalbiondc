@@ -21,73 +21,130 @@ audioPlayer.setMaxListeners(0);
 
 let currentConnection = null;
 
+// @discordjs/voice 0.18.0 UDP keepAlive bug fix
+// signalling->connecting->signalling döngüsünü çözer
+function applyVoiceConnectionFix(connection) {
+    connection.on('stateChange', (oldState, newState) => {
+        const oldNetworking = Reflect.get(oldState, 'networking');
+        const newNetworking = Reflect.get(newState, 'networking');
+
+        const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
+            const newUdp = Reflect.get(newNetworkState, 'udp');
+            clearInterval(newUdp?.keepAliveInterval);
+        };
+
+        oldNetworking?.off('stateChange', networkStateChangeHandler);
+        newNetworking?.on('stateChange', networkStateChangeHandler);
+    });
+    return connection;
+}
 
 
-/**
- * GENEL SES DOSYASI ÇALMA FONKSİYONU
- */
+
+
+// Global ses kuyruğu - eş zamanlı çalma sorununu önler
+let audioQueue = [];
+let isPlayingAudio = false;
+
 async function playSoundFile(channel, soundFilePath, config) {
-    return new Promise(async (resolve) => {
-        try {
-            let connection = getVoiceConnection(channel.guild.id);
-
-            // Aynı guild içinde başka kanala bağlıysa kapat
-            if (connection && connection.joinConfig.channelId !== channel.id) {
-                try {
-                    connection.destroy();
-                } catch (err) {}
-                connection = null;
-            }
-
-            if (!connection) {
-                connection = joinVoiceChannel({
-                    channelId: channel.id,
-                    guildId: channel.guild.id,
-                    adapterCreator: channel.guild.voiceAdapterCreator,
-                    selfDeaf: true,
-                    selfMute: false
-                });
-                currentConnection = connection;
-            }
-
-            // Bağlantıyı bekle
-            try {
-                if (connection.state.status !== VoiceConnectionStatus.Ready) {
-                    await entersState(connection, VoiceConnectionStatus.Ready, 20000);
-                }
-            } catch (e) {
-                console.error('[SOUND FILE] Bağlantı hatası:', e.message);
-                try { connection.destroy(); } catch(err) {}
-                return resolve(false);
-            }
-
-            const resource = createAudioResource(soundFilePath, {
-                inputType: StreamType.Arbitrary,
-                inlineVolume: true
-            });
-
-            if (resource.volume) {
-                const volume = config.SOUND_FILES_VOLUME || voiceConfig.SOUND_FILES_VOLUME || 0.5;
-                resource.volume.setVolume(volume);
-            }
-
-            connection.subscribe(audioPlayer);
-            audioPlayer.play(resource);
-
-            audioPlayer.once(AudioPlayerStatus.Idle, () => {
-                resolve(true);
-            });
-
-            audioPlayer.once('error', error => {
-                console.error('[SOUND FILE ERROR]', error);
-                resolve(false);
-            });
-        } catch (error) {
-            console.error('[SOUND FILE FATAL ERROR]', error);
-            resolve(false);
+    return new Promise((resolve) => {
+        audioQueue.push({ channel, soundFilePath, config, resolve });
+        if (!isPlayingAudio) {
+            processAudioQueue();
         }
     });
 }
+
+async function processAudioQueue() {
+    if (audioQueue.length === 0) {
+        isPlayingAudio = false;
+        return;
+    }
+
+    isPlayingAudio = true;
+    const { channel, soundFilePath, config, resolve } = audioQueue.shift();
+
+    try {
+        // Mevcut bağlantıyı al, farklı kanaldaysa yok et
+        let connection = getVoiceConnection(channel.guild.id);
+        if (connection && connection.joinConfig.channelId !== channel.id) {
+            try { connection.destroy(); } catch (e) {}
+            connection = null;
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        // Yeni bağlantı kur
+        if (!connection || connection.state.status === VoiceConnectionStatus.Destroyed) {
+            connection = applyVoiceConnectionFix(joinVoiceChannel({
+                channelId: channel.id,
+                guildId: channel.guild.id,
+                adapterCreator: channel.guild.voiceAdapterCreator,
+                selfDeaf: true,
+                selfMute: false,
+            }));
+            currentConnection = connection;
+        }
+
+        // Ready state'ini event ile bekle (entersState yerine)
+        if (connection.state.status !== VoiceConnectionStatus.Ready) {
+            console.log(`[SOUND DEBUG] Bağlantı bekleniyor, mevcut durum: ${connection.state.status}`);
+            await new Promise((res, rej) => {
+                const timeout = setTimeout(() => {
+                    console.log(`[SOUND DEBUG] Zaman aşımı! Son durum: ${connection.state.status}`);
+                    rej(new Error('Bağlantı zaman aşımı'));
+                }, 15000);
+
+                const onStateChange = (oldState, newState) => {
+                    console.log(`[SOUND DEBUG] State değişimi: ${oldState.status} -> ${newState.status}`);
+                    if (newState.status === VoiceConnectionStatus.Ready) {
+                        clearTimeout(timeout);
+                        connection.off('stateChange', onStateChange);
+                        res();
+                    } else if (newState.status === VoiceConnectionStatus.Destroyed) {
+                        clearTimeout(timeout);
+                        connection.off('stateChange', onStateChange);
+                        rej(new Error('Bağlantı yok edildi'));
+                    }
+                };
+                connection.on('stateChange', onStateChange);
+            });
+        } else {
+            console.log(`[SOUND DEBUG] Bağlantı zaten Ready!`);
+        }
+
+        // Ses dosyasını çal
+        const resource = createAudioResource(soundFilePath, {
+            inputType: StreamType.Arbitrary,
+            inlineVolume: true,
+        });
+
+        const volume = (config && config.SOUND_FILES_VOLUME) || voiceConfig.SOUND_FILES_VOLUME || 0.8;
+        if (resource.volume) resource.volume.setVolume(volume);
+
+        connection.subscribe(audioPlayer);
+        audioPlayer.play(resource);
+
+        console.log(`[SOUND] ✅ Çalınıyor: ${soundFilePath}`);
+
+        // Bitişini bekle
+        await new Promise((res) => {
+            audioPlayer.once(AudioPlayerStatus.Idle, res);
+            audioPlayer.once('error', (err) => {
+                console.error('[SOUND ERROR]', err.message);
+                res();
+            });
+        });
+
+        resolve(true);
+    } catch (err) {
+        console.error(`[SOUND FILE] ❌ Hata: ${err.message}`);
+        resolve(false);
+    }
+
+    // Kısa bekleme sonrası kuyruğu işle
+    setTimeout(() => processAudioQueue(), 300);
+}
+
 
 /**
  * AKILLI SES ÇALMA - Ses dosyası varsa onu kullan, yoksa TTS kullan
@@ -150,21 +207,14 @@ async function speak(channel, text, config) {
             // Bağlantı yoksa yeni oluştur
             if (!connection) {
                 if (voiceConfig.SHOW_TTS_LOGS) console.log('[TTS] Yeni bağlantı oluşturuluyor...');
-                connection = joinVoiceChannel({
+                connection = applyVoiceConnectionFix(joinVoiceChannel({
                     channelId: channel.id,
                     guildId: channel.guild.id,
                     adapterCreator: channel.guild.voiceAdapterCreator,
                     selfDeaf: true,
                     selfMute: false
-                });
+                }));
                 currentConnection = connection;
-
-                // Listener'ı sadece yeni bağlantıda ekle
-                connection.on('stateChange', (oldState, newState) => {
-                    if (voiceConfig.SHOW_TTS_LOGS) {
-                        console.log(`[TTS CONNECTION] ${oldState.status} -> ${newState.status}`);
-                    }
-                });
             }
 
             // Ready değilse biraz bekle

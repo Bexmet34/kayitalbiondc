@@ -140,15 +140,9 @@ client.on('interactionCreate', async interaction => {
             if (customId === 'notify_staff') {
                 const member = interaction.member;
 
-                // Spam Kontrolü
-                const cooldown = checkCooldown(member.id, interaction.guildId, 600000);
-                if (cooldown.onCooldown) {
-                    const remainingMinutes = Math.ceil(cooldown.remaining / 60000);
-                    return interaction.reply({
-                        content: `⚠️ Zaten bir yetkili çağırdınız! **${remainingMinutes}** dakika sonra tekrar deneyebilirsiniz.`,
-                        flags: [MessageFlags.Ephemeral]
-                    }).catch(() => { });
-                }
+                // Spam Kontrolü Kapatıldı (Test Aşaması)
+                // const cooldown = checkCooldown(member.id, interaction.guildId, 600000);
+                // if (cooldown.onCooldown) { ... }
 
                 if (!member.voice.channel || member.voice.channel.id !== config.VOICE_CHANNEL_ID) {
                     return interaction.reply({ content: `❌ Önce <#${config.VOICE_CHANNEL_ID}> ses kanalına girmelidir!`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
@@ -158,7 +152,7 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: `❌ Zaten kayıtlısınız veya gereken role sahip değilsiniz.`, flags: [MessageFlags.Ephemeral] }).catch(() => { });
                 }
 
-                setCooldown(member.id, interaction.guildId);
+                // setCooldown(member.id, interaction.guildId); // Kapatıldı
                 await interaction.reply({ content: '🔄 Bir yetkili bulmaya gidiyorum, lütfen bekle.', flags: [MessageFlags.Ephemeral] }).catch(() => { });
                 startStaffSearch(member, member.voice.channel, config).catch(e => console.error('Staff search error:', e));
             }
