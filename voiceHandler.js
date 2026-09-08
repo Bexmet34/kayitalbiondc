@@ -344,6 +344,23 @@ async function processQueue() {
 
             await speakOrPlaySound(channel, customText, 'staff_not_found', config);
         }
+
+        // 3. ÇIKIŞ SESİ - Basayım.mp3'ü %30 sesle çal, sonra bot kanaldan ayrılsın
+        const goodbyePath = config.SOUND_GOODBYE || voiceConfig.SOUND_GOODBYE;
+        if (goodbyePath) {
+            const goodbyeVolume = config.SOUND_GOODBYE_VOLUME ?? voiceConfig.SOUND_GOODBYE_VOLUME ?? 0.3;
+            // Geçici config ile playSoundFile çağır (sadece ses seviyesi farklı)
+            const goodbyeConfig = { ...voiceConfig, ...config, SOUND_FILES_VOLUME: goodbyeVolume };
+            console.log(`[SOUND] Çıkış sesi çalınıyor: ${goodbyePath} (ses: %${goodbyeVolume * 100})`);
+            await playSoundFile(channel, goodbyePath, goodbyeConfig);
+        }
+
+        // Bot kanaldan ayrıl
+        const conn = getVoiceConnection(channel.guild.id);
+        if (conn) {
+            try { conn.destroy(); } catch (e) {}
+            console.log('[VOICE] Bot ses kanalından ayrıldı.');
+        }
     } catch (err) {
         console.error("Sesli işlem hatası:", err);
     } finally {

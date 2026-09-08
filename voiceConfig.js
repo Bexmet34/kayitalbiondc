@@ -38,6 +38,8 @@ module.exports = {
     SOUND_STAFF_FOUND: './sound/yetkilibulundu.mp3',    // Yetkili bulundu sesi
     SOUND_STAFF_NOT_FOUND: './sound/yetkilibulunamadi.mp3',  // Yetkili bulunamadı sesi
     SOUND_STAFF_NOTIFY: './sound/yetkilicagirma.mp3',   // Yetkili ses kanalında bildirim
+    SOUND_GOODBYE: './sound/Basayım.mp3',               // Çıkış sesi (staff_found/not_found sonrası)
+    SOUND_GOODBYE_VOLUME: 0.3,                          // Çıkış sesi seviyesi (%30)
     SOUND_FILES_VOLUME: 0.5,                            // Ses dosyaları genel ses seviyesi
 
     // ============================================
