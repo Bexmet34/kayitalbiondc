@@ -16,10 +16,27 @@ audioPlayer.on('stateChange', (oldState, newState) => {
 });
 audioPlayer.on('error', error => console.error('[TTS ERROR]', error));
 
+// AutoPaused düzeltmesi: bağlantı geçiş halindeyken subscribe kaybolabilir
+// AutoPaused'da tekrar subscribe yaparak sesin kesilmesini önle
+audioPlayer.on(AudioPlayerStatus.AutoPaused, () => {
+    if (currentConnection && currentConnection.state.status !== VoiceConnectionStatus.Destroyed) {
+        currentConnection.subscribe(audioPlayer);
+    }
+});
+
 // Bellek sızıntısı uyarısını engellemek için limitleri kaldırıyoruz
 audioPlayer.setMaxListeners(0);
 
 let currentConnection = null;
+
+// IP discovery hatası gibi beklenmedik UDP hatalarını yakala (botu çökertme)
+process.on('unhandledRejection', (reason) => {
+    if (reason && reason.message && reason.message.includes('IP discovery')) {
+        console.warn('[VOICE] UDP IP discovery hatası yoksayıldı (geçici bağlantı sorunu):', reason.message);
+        return;
+    }
+    console.error('[PROCESS ERROR] Unhandled Rejection:', reason);
+});
 
 // @discordjs/voice 0.18.0 UDP keepAlive bug fix
 // connecting -> signalling döngüsünü çözer
