@@ -82,7 +82,14 @@ async function processAudioQueue() {
         }
 
         // Yeni bağlantı kur
-        if (!connection || connection.state.status === VoiceConnectionStatus.Destroyed) {
+        if (!connection
+            || connection.state.status === VoiceConnectionStatus.Destroyed
+            || connection.state.status === VoiceConnectionStatus.Disconnected) {
+            // Bağlantı kopuksa veya yok edilmişse önce temizle
+            if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                try { connection.destroy(); } catch (e) {}
+                await new Promise(r => setTimeout(r, 300));
+            }
             connection = applyVoiceConnectionFix(joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
