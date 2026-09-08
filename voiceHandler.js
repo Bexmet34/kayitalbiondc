@@ -177,6 +177,35 @@ async function processAudioQueue() {
     setTimeout(() => processAudioQueue(), 300);
 }
 
+/**
+ * DOĞRUDAN SES ÇALMA - Kuyruk kullanmadan mevcut bağlantıya direkt çalar
+ * Çıkış sesi (Basayım.mp3) için kullanılır
+ */
+async function playDirect(connection, soundFilePath, volume) {
+    return new Promise((resolve) => {
+        try {
+            const resource = createAudioResource(soundFilePath, {
+                inputType: StreamType.Arbitrary,
+                inlineVolume: true,
+            });
+            if (resource.volume) resource.volume.setVolume(volume);
+
+            connection.subscribe(audioPlayer);
+            audioPlayer.play(resource);
+            console.log(`[SOUND] ✅ Çıkış sesi çalınıyor: ${soundFilePath} (ses: %${volume * 100})`);
+
+            audioPlayer.once(AudioPlayerStatus.Idle, () => resolve(true));
+            audioPlayer.once('error', (err) => {
+                console.error('[SOUND GOODBYE ERROR]', err.message);
+                resolve(false);
+            });
+        } catch (err) {
+            console.error('[SOUND GOODBYE FATAL]', err.message);
+            resolve(false);
+        }
+    });
+}
+
 
 /**
  * AKILLI SES ÇALMA - Ses dosyası varsa onu kullan, yoksa TTS kullan
@@ -366,10 +395,41 @@ async function processQueue() {
         const goodbyePath = config.SOUND_GOODBYE || voiceConfig.SOUND_GOODBYE;
         if (goodbyePath) {
             const goodbyeVolume = config.SOUND_GOODBYE_VOLUME ?? voiceConfig.SOUND_GOODBYE_VOLUME ?? 0.3;
-            // Geçici config ile playSoundFile çağır (sadece ses seviyesi farklı)
-            const goodbyeConfig = { ...voiceConfig, ...config, SOUND_FILES_VOLUME: goodbyeVolume };
-            console.log(`[SOUND] Çıkış sesi çalınıyor: ${goodbyePath} (ses: %${goodbyeVolume * 100})`);
-            await playSoundFile(channel, goodbyePath, goodbyeConfig);
+            console.log(`[SOUND] Çıkış sesi hazırlanıyor: ${goodbyePath}`);
+
+            // Mevcut bağlantıyı al (az önce kullanılan)
+            let goodbyeConn = getVoiceConnection(channel.guild.id);
+
+            // Bağlantı yoksa veya hatalıysa yeniden kur
+            if (!goodbyeConn
+                || goodbyeConn.state.status === VoiceConnectionStatus.Destroyed
+                || goodbyeConn.state.status === VoiceConnectionStatus.Disconnected) {
+                if (goodbyeConn && goodbyeConn.state.status !== VoiceConnectionStatus.Destroyed) {
+                    try { goodbyeConn.destroy(); } catch (e) {}
+                    await new Promise(r => setTimeout(r, 300));
+                }
+                goodbyeConn = applyVoiceConnectionFix(joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: channel.guild.id,
+                    adapterCreator: channel.guild.voiceAdapterCreator,
+                    selfDeaf: true,
+                    selfMute: false,
+                }));
+                currentConnection = goodbyeConn;
+            }
+
+            // Ready değilse bekle
+            if (goodbyeConn.state.status !== VoiceConnectionStatus.Ready) {
+                try {
+                    await entersState(goodbyeConn, VoiceConnectionStatus.Ready, 10000);
+                } catch (e) {
+                    console.error('[SOUND GOODBYE] Bağlantı hazır olmadı, çıkış sesi atlanıyor:', e.message);
+                }
+            }
+
+            if (goodbyeConn.state.status === VoiceConnectionStatus.Ready) {
+                await playDirect(goodbyeConn, goodbyePath, goodbyeVolume);
+            }
         }
 
         // Bot kanaldan ayrıl
